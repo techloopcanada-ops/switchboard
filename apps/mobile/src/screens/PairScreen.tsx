@@ -1,6 +1,6 @@
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import React, { useRef, useState } from 'react';
-import { KeyboardAvoidingView, Platform, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
+import { KeyboardAvoidingView, Pressable, ScrollView, Text, TextInput, View } from 'react-native';
 import { api, normalizeUrl, parsePairing, type Connection } from '../connection';
 import { C, s } from '../theme';
 
@@ -45,7 +45,7 @@ export function PairScreen({ onPaired }: { onPaired: (connection: Connection) =>
   }
 
   return (
-    <KeyboardAvoidingView style={s.flex} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
+    <KeyboardAvoidingView style={s.flex} behavior="padding">
       <ScrollView contentContainerStyle={[s.pad, { gap: 16 }]} keyboardShouldPersistTaps="handled">
         <Text style={s.caption}>Pair with your computer</Text>
         <Text style={s.h1}>Scan the code in the Pair tab</Text>
