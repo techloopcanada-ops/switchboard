@@ -10,8 +10,8 @@ October 25, 2026. Identity decision: TechLoop (same as Kerf Pocket). Check items
 
 ## Owner actions (need your accounts)
 
-- [ ] **Expo project.** Run `eas init` in `apps/mobile` while logged in as `focust`, if the automated attempt was blocked. Records `extra.eas.projectId` in `app.json`.
-- [ ] **Push credentials.** Create a Firebase project under the TechLoop Google account, upload the service-account JSON with `eas credentials` (Android → Push notifications).
+- [x] **Expo project.** `@focust/switchboard`, id `1093be0f-bd9e-4c52-9fc5-145f322f4c20`, recorded in `app.json` (Oct 25, 2026).
+- [x] **Push credentials.** Firebase project `switchboard-951dd` under the TechLoop Google account with Android app `ca.techloop.switchboard`; `google-services.json` in `apps/mobile` (ignored by git); FCM V1 service-account key and an EAS-generated upload keystore are on the Expo project (verified on the credentials page, Oct 25, 2026). Key kept privately outside the repo.
 - [ ] **Production Android build.** `eas build -p android --profile production` (AAB) and `--profile preview` (APK) with the EAS-managed keystore.
 - [ ] **Support and privacy pages.** Deploy `docs/SUPPORT.md` and `docs/PRIVACY-POLICY.md` on the TechLoop Cloudflare account, same pattern as Kerf's `support/worker.mjs`. Record the URLs in `release/STORE_LISTING.md`.
 - [ ] **Google Play enrollment** under TechLoop, then create the app, fill the listing from `STORE_LISTING.md`, upload screenshots from the real app, answer data safety as drafted, submit for review.
