@@ -34,6 +34,10 @@ On Windows, if the folder path contains `&`, run tools as `node node_modules/<pk
 | `apps/mobile` | Expo app: pair by QR, chat, approvals, push | Claude |
 | `docs/` | Product spec, setup, tutorials, mobile, monetization, Codex brief | both |
 
+## Skills and chat commands
+
+Bots save reusable procedures as skills (agentskills.io format) and you approve each one; `/learn`, `/help` and friends work in every chat surface. See `docs/SKILLS-AND-LEARNING.md`.
+
 ## Security model
 
 - The API listens on loopback by default and is always token-protected. LAN binding is opt-in for phone pairing.

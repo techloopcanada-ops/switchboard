@@ -14,6 +14,24 @@ export interface Bot {
   model: { provider: string; id: string };
 }
 
+export interface SessionRow {
+  id: string;
+  botId: string;
+  chatKey: string;
+  channel: string;
+  title: string;
+  createdAt: number;
+  updatedAt: number;
+  messageCount?: number;
+  preview?: string;
+}
+
+export interface CommandOutcome {
+  reply: string;
+  switchBot?: string;
+  newConversation?: boolean;
+}
+
 export interface Approval {
   id: string;
   botId: string;
@@ -48,6 +66,8 @@ export type ServerMessage =
   | { type: 'approval_resolved'; resolved: ApprovalResolved }
   | { type: 'bots'; bots: Bot[] }
   | { type: 'chat_result'; requestId?: string; result: { text: string; error?: string; sessionId: string } }
+  | { type: 'command_result'; requestId?: string; command: CommandOutcome }
+  | { type: 'skill_learned'; name: string }
   | { type: 'error'; requestId?: string; message: string }
   | { type: 'pong' }
   | { type: 'approve_result'; id: string; ok: boolean }
