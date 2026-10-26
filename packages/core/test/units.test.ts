@@ -169,6 +169,20 @@ test('models: keyless OpenAI-compatible servers resolve a placeholder key and ad
   assert.equal(await registry.checkAuth('openrouter'), undefined, 'no key configured');
 });
 
+test('pairing: Wi-Fi first, VPN next, hypervisor adapters last', async () => {
+  const { rankPairingCandidates } = await import('../src/runtime.ts');
+  const v4 = (address: string, internal = false) => ({ address, netmask: '255.255.255.0', family: 'IPv4' as const, mac: '00:00:00:00:00:00', internal, cidr: `${address}/24` });
+  const ranked = rankPairingCandidates({
+    'vEthernet (WSL (Hyper-V firewall))': [v4('172.27.0.1')],
+    'Tailscale': [v4('100.108.128.26')],
+    'Wi-Fi': [v4('10.0.0.133')],
+    'Loopback Pseudo-Interface 1': [v4('127.0.0.1', true)],
+  }, 7787);
+  assert.deepEqual(ranked.map(c => [c.kind, c.address]), [['lan', '10.0.0.133'], ['vpn', '100.108.128.26'], ['virtual', '172.27.0.1']]);
+  assert.equal(ranked[0]?.url, 'http://10.0.0.133:7787');
+  assert.match(ranked[2]?.note ?? '', /cannot reach/);
+});
+
 test('server: config patches keep masked secrets and reject bad values', () => {
   const current = { ...defaultConfig(), providers: { openai: { kind: 'builtin' as const, apiKey: 'sk-old' } }, telegram: { token: 'tg-old', allowedUserIds: [1] } };
   const patch = sanitizeConfigPatch(current, { providers: { openai: { kind: 'builtin', apiKey: 'sk-o…-old' } }, telegram: { token: '••••', allowedUserIds: [1, 2] }, approvalTimeoutSec: 60 });

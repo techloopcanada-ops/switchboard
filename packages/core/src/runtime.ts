@@ -404,19 +404,13 @@ export class Switchboard extends EventEmitter<Events> {
     ].join('\n\n');
   }
 
-  pairingInfo(): { urls: string[]; token: string; host: string; port: number } {
+  pairingInfo(): { urls: string[]; candidates: PairingCandidate[]; token: string; host: string; port: number } {
     const port = this.config.server.port;
-    const urls: string[] = [];
-    if (this.config.server.host === '0.0.0.0' || this.config.server.host === '::') {
-      for (const list of Object.values(os.networkInterfaces())) {
-        for (const iface of list ?? []) {
-          if (iface.family === 'IPv4' && !iface.internal) urls.push(`http://${iface.address}:${port}`);
-        }
-      }
-    } else {
-      urls.push(`http://${this.config.server.host}:${port}`);
-    }
-    return { urls, token: this.config.token, host: this.config.server.host, port };
+    const host = this.config.server.host;
+    const candidates = host === '0.0.0.0' || host === '::'
+      ? rankPairingCandidates(os.networkInterfaces(), port)
+      : [{ url: `http://${host}:${port}`, address: host, adapter: 'configured host', kind: 'lan' as const, note: host === '127.0.0.1' ? 'Loopback only: phones cannot reach this. Set Server host to 0.0.0.0 in Settings → General and restart.' : '' }];
+    return { urls: candidates.map(c => c.url), candidates, token: this.config.token, host, port };
   }
 
   usage() {
@@ -430,6 +424,36 @@ export class Switchboard extends EventEmitter<Events> {
     for (const channel of this.channels.values()) await channel.stop().catch(() => undefined);
     this.store.close();
   }
+}
+
+export interface PairingCandidate {
+  url: string;
+  address: string;
+  adapter: string;
+  /** lan = Wi-Fi or Ethernet; vpn = Tailscale or similar; virtual = hypervisor or container adapters phones cannot reach. */
+  kind: 'lan' | 'vpn' | 'virtual';
+  note: string;
+}
+
+const VIRTUAL_ADAPTER = /vEthernet|Hyper-V|WSL|Docker|VirtualBox|VMware|vmnet|Loopback|Npcap|Bluetooth/i;
+const VPN_ADAPTER = /Tailscale|ZeroTier|WireGuard|OpenVPN|NordLynx|Hamachi|tun\d|utun/i;
+
+/** Order network addresses for phone pairing: Wi-Fi and Ethernet first, VPNs next, hypervisor adapters last. */
+export function rankPairingCandidates(interfaces: NodeJS.Dict<os.NetworkInterfaceInfo[]>, port: number): PairingCandidate[] {
+  const out: PairingCandidate[] = [];
+  for (const [adapter, list] of Object.entries(interfaces)) {
+    for (const iface of list ?? []) {
+      if (iface.family !== 'IPv4' || iface.internal) continue;
+      const kind: PairingCandidate['kind'] = VIRTUAL_ADAPTER.test(adapter) ? 'virtual'
+        : VPN_ADAPTER.test(adapter) || iface.address.startsWith('100.') ? 'vpn' : 'lan';
+      const note = kind === 'lan' ? 'Same Wi-Fi or Ethernet as the phone.'
+        : kind === 'vpn' ? 'Works from anywhere when the phone runs the same VPN (for example Tailscale).'
+          : 'Virtual adapter on this computer only; phones cannot reach it.';
+      out.push({ url: `http://${iface.address}:${port}`, address: iface.address, adapter, kind, note });
+    }
+  }
+  const rank = { lan: 0, vpn: 1, virtual: 2 };
+  return out.sort((a, b) => rank[a.kind] - rank[b.kind] || a.adapter.localeCompare(b.adapter));
 }
 
 function resultText(result: unknown): string {
