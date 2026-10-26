@@ -1,17 +1,16 @@
 SWITCHBOARD ANDROID TEST APK
 File: switchboard-0.1.0-android-test.apk
-Bytes: 29841397
-SHA256: 3A770A6EEFC6D57ED92C61F103A13AAF335BDCFA92EC62AD895229828D35C340
-Built: 2026-10-25T21:04:37 locally with Gradle from a clean-path copy (C:\sw), ABI arm64-v8a only, release variant, Firebase client config for project switchboard-951dd compiled in.
+Bytes: 29841425
+SHA256: 6BF9D8B2AB7CF599C10FC1F8DDF17089BA2015B068599F0B6120989704CA0ED9
+Built: 2026-10-25T21:25:32 locally with Gradle from a clean-path copy (C:\sw), ABI arm64-v8a only, release variant, Firebase client config for project switchboard-951dd compiled in, cleartext HTTP enabled for LAN/Tailscale pairing.
 Signing: Android debug certificate (installable for testing; not a store artifact). Production builds come from EAS (project @focust/switchboard).
-V2 Signer: certificate DN: CN=Android Debug, OU=Android, O=Unknown, L=Unknown, ST=Unknown, C=US
 package: name='ca.techloop.switchboard' versionCode='1' versionName='0.1.0' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'
-native-code: 'arm64-v8a'
-Firebase components in manifest: True
+Manifest: A: android:usesCleartextTraffic(0x010104ec)=(type 0x12)0xffffffff
 
 WINDOWS INSTALLER (desktop)
 File: apps/desktop/release/Switchboard-Setup-0.1.0-x64.exe (not committed; rebuild with npm run build then npm run dist -w apps/desktop)
 Bytes: 128308128
 SHA256: 2F4F1C1BDF9776E66FD04BA55017B49D8F56787503229362DDB7BA617409C1F3
 Built: 2026-10-25T21:11:30 with electron-builder NSIS x64; unsigned (no code-signing certificate yet); appId ca.techloop.switchboard.
+
 
