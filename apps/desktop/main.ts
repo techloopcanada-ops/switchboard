@@ -57,7 +57,7 @@ async function toggleChannels(): Promise<void> {
 
 const primary = app.requestSingleInstanceLock();
 if (!primary) app.quit();
-app.setAppUserModelId('app.switchboard.desktop');
+app.setAppUserModelId('ca.techloop.switchboard');
 app.on('second-instance', () => showWindow());
 app.on('activate', () => showWindow());
 app.on('window-all-closed', () => { if (!tray) app.quit(); });

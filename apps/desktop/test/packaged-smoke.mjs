@@ -55,41 +55,54 @@ child.stdout.on('data', chunk => { output = (output + chunk).slice(-8000); });
 child.stderr.on('data', chunk => { output = (output + chunk).slice(-8000); });
 let spawnError;
 const exited = new Promise(resolve => {
-  child.once('exit', resolve);
-  child.once('error', error => { spawnError = error; resolve(null); });
+  child.once('exit', (code, signal) => resolve({ code, signal }));
+  child.once('error', error => { spawnError = error; resolve({ code: null, signal: null }); });
 });
-let passed = false;
+let rendererReady = false;
+let checksPassed = false;
+let failure;
 try {
-  let page;
   for (let attempt = 0; attempt < 100; attempt++) {
     if (spawnError) throw spawnError;
     if (child.exitCode !== null) throw new Error(`Packaged app exited early: ${output}`);
     try {
       const pages = await fetch(`http://127.0.0.1:${debugPort}/json/list`, { signal: AbortSignal.timeout(500) }).then(response => response.json());
-      page = pages.find(candidate => candidate.type === 'page' && candidate.url.startsWith(`http://127.0.0.1:${port}`));
+      const page = pages.find(candidate => candidate.type === 'page' && new URL(candidate.url).origin === `http://127.0.0.1:${port}`);
       if (page) {
         const result = await command(page.webSocketDebuggerUrl, 'Runtime.evaluate', { expression: 'document.body.innerText', returnByValue: true });
-        if (/Settings/.test(result.result.value) && /Chat/.test(result.result.value)) break;
-        page = undefined;
+        const text = result.result?.value;
+        if (!result.exceptionDetails && typeof text === 'string' && /Settings/.test(text) && /Chat/.test(text)) {
+          rendererReady = true;
+          break;
+        }
       }
     } catch { /* Wait for the packaged daemon and renderer to become ready. */ }
     await pause(300);
   }
-  assert.ok(page, `Packaged UI did not load. ${output}`);
+  assert.ok(rendererReady, `Packaged UI did not load. ${output}`);
   const response = await fetch(`http://127.0.0.1:${port}/api/status`, { headers: { Authorization: `Bearer ${config.token}` } });
   assert.equal(response.status, 200);
   assert.equal((await response.json()).version, '0.1.0');
   const skills = await fetch(`http://127.0.0.1:${port}/api/skills`, { headers: { Authorization: `Bearer ${config.token}` } }).then(response => response.json());
   assert.ok(skills.some(skill => skill.source === 'bundled'));
-  passed = true;
-  console.log('Packaged executable smoke passed: real daemon, rendered UI, and bundled skills.');
+  checksPassed = true;
+} catch (error) {
+  failure = error;
 } finally {
   try {
     const browser = await fetch(`http://127.0.0.1:${debugPort}/json/version`, { signal: AbortSignal.timeout(1000) }).then(response => response.json());
     await command(browser.webSocketDebuggerUrl, 'Browser.close');
   } catch { /* Fall through to isolated test-process cleanup. */ }
-  const gracefulExit = await Promise.race([exited.then(() => true), pause(5000).then(() => false)]);
-  if (!gracefulExit) { child.kill(); await exited; }
-  fs.writeFileSync(path.join(release, 'packaged-smoke-results.json'), JSON.stringify({ passed, gracefulExit, temporary }, null, 2));
+  let exitResult = await Promise.race([exited, pause(5000).then(() => undefined)]);
+  const gracefulExit = Boolean(exitResult && !spawnError && exitResult.code === 0 && exitResult.signal === null);
+  if (!exitResult) { child.kill(); exitResult = await exited; }
+  const passed = checksPassed && gracefulExit;
+  const { code: exitCode, signal: exitSignal } = exitResult;
+  fs.writeFileSync(path.join(release, 'packaged-smoke-results.json'), JSON.stringify({ passed, rendererReady, gracefulExit, exitCode, exitSignal, temporary }, null, 2));
+  assert.equal(path.dirname(path.resolve(temporary)), path.resolve(os.tmpdir()));
+  assert.ok(path.basename(temporary).startsWith('switchboard-packaged-smoke-'));
   try { fs.rmSync(temporary, { recursive: true, force: true }); } catch { /* Windows may retain test cache handles. */ }
+  if (failure) throw failure;
+  assert.ok(gracefulExit, `Packaged app did not exit cleanly before the timeout (code ${exitCode}, signal ${exitSignal}). ${output}`);
+  console.log('Packaged executable smoke passed: real daemon, rendered UI, bundled skills, and clean exit.');
 }
