@@ -38,8 +38,7 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.SYSTEM_ALERT_WINDOW"
       ],
-      "predictiveBackGestureEnabled": true,
-      "usesCleartextTraffic": true
+      "predictiveBackGestureEnabled": true
     },
     "updates": {
       "enabled": false
@@ -59,7 +58,8 @@
         }
       ],
       "expo-secure-store",
-      "./plugins/with-cmake-object-path-max.js"
+      "./plugins/with-cmake-object-path-max.js",
+      "./plugins/with-cleartext-traffic.js"
     ],
     "extra": {
       "eas": {

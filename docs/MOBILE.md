@@ -9,7 +9,9 @@ The phone app is a remote control for the daemon on your computer: chat with any
 3. On the phone: Scan QR code, or paste the text, or type the URL and token.
 4. The phone checks `/api/status`, saves the connection in the device's secure store, and registers for pushes.
 
-If pairing fails: both devices must reach each other (same Wi-Fi, or Tailscale on both), Windows Firewall must allow Node on private networks, and the daemon must be running. Pairing over the public internet is deliberately unsupported.
+If pairing fails: both devices must reach each other (same Wi-Fi, or Tailscale on both), Windows Firewall must allow Node on private networks, and the daemon must be running. Pairing over the public internet is deliberately unsupported. The Pair tab lists Wi-Fi addresses first; virtual adapters (WSL, Hyper-V, Docker) are listed last and never work from a phone.
+
+The connection is plain HTTP by IP address, so the app opts in to cleartext traffic through `plugins/with-cleartext-traffic.js` (Android blocks it by default and reports "CLEARTEXT communication … not permitted"). The bearer token protects the API, and Tailscale encrypts the link when you pair over it.
 
 ## Push notifications
 
