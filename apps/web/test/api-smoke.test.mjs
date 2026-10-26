@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, rm, writeFile, unlink } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile, unlink, readFile } from 'node:fs/promises';
 import { createServer as createHttpServer } from 'node:http';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -59,6 +59,7 @@ test('web contracts against the real daemon with isolated storage', { timeout: 4
     const saved = await request('config', 'PUT', {
       providers: { 'smoke-local': { kind: 'openai-compatible', name: 'Smoke local', apiKey: 'inert-smoke-key', baseUrl } },
       defaultModel: { provider: 'smoke-local', id: 'smoke-model' }, approvalTimeoutSec: 30, guideBot: true,
+      learning: { auto: false, minToolCalls: 3 },
       referralCodes: { novita: 'smoke-code' },
     });
     assert.notEqual(saved.providers['smoke-local'].apiKey, 'inert-smoke-key');
@@ -74,6 +75,8 @@ test('web contracts against the real daemon with isolated storage', { timeout: 4
     assert.equal(referrals.links.find(link => link.id === 'novita').affiliate, true);
     assert.deepEqual((await request('channels')).connected, []);
     assert.deepEqual((await request('channels/restart', 'POST')).connected, []);
+    assert.deepEqual((await request('status')).learning, { auto: false, minToolCalls: 3 });
+    assert.deepEqual((await request('config')).learning, { auto: false, minToolCalls: 3 });
   });
 
   const faux = fauxProvider({ provider: 'smoke-faux', models: [{ id: 'one', cost: { input: 1, output: 2, cacheRead: 0, cacheWrite: 0 } }] });
@@ -89,6 +92,34 @@ test('web contracts against the real daemon with isolated storage', { timeout: 4
     await request('bots/smoke-bot', 'PUT', bot);
     assert.equal((await request('bots')).find(b => b.id === 'smoke-bot').description, bot.description);
     assert.ok(Array.isArray(await request('usage')));
+  });
+
+  await t.test('opening an empty conversation does not create or list a session', async () => {
+    assert.deepEqual(await request('sessions?bot=smoke-bot&chat=web%3Aunopened'), { session: null, messages: [] });
+    assert.equal(app.sb.store.findSession(bot.id, 'web:unopened'), undefined);
+    assert.ok(!(await request('sessions/list')).some(session => session.chatKey === 'web:unopened'));
+    await request('sessions/reset', 'POST', { botId: bot.id, chatKey: 'web:unopened' });
+    assert.equal(app.sb.store.findSession(bot.id, 'web:unopened'), undefined);
+  });
+
+  await t.test('conversation list spans bots, exposes previews, renames and deletes', async () => {
+    await request('bots/smoke-other', 'PUT', { ...bot, id: 'smoke-other', name: 'Other bot' });
+    faux.setResponses([fauxAssistantMessage('First bot answer'), fauxAssistantMessage('Other bot answer')]);
+    await request('chat', 'POST', { botId: bot.id, chatKey: 'web:first-listing', text: 'First preview' });
+    await request('chat', 'POST', { botId: 'smoke-other', chatKey: 'web:other-listing', text: 'Other preview' });
+    const all = await request('sessions/list');
+    const first = all.find(session => session.chatKey === 'web:first-listing');
+    const other = all.find(session => session.chatKey === 'web:other-listing');
+    assert.equal(first.botId, bot.id);
+    assert.equal(other.botId, 'smoke-other');
+    assert.equal(first.preview, 'First preview');
+    assert.equal(other.messageCount, 2);
+    await request(`sessions/${first.id}`, 'PUT', { title: 'My renamed conversation' });
+    assert.equal((await request('sessions/list')).find(session => session.id === first.id).title, 'My renamed conversation');
+    await request(`sessions/${other.id}`, 'DELETE');
+    assert.ok(!(await request('sessions/list')).some(session => session.id === other.id));
+    assert.deepEqual(await request('sessions?bot=smoke-other&chat=web%3Aother-listing'), { session: null, messages: [] });
+    await request('bots/smoke-other', 'DELETE');
   });
 
   await t.test('workflow edit, manual run, cron schedule, validation and delete', async () => {
@@ -164,6 +195,20 @@ test('web contracts against the real daemon with isolated storage', { timeout: 4
     assert.equal((await next(message => message.type === 'pong')).type, 'pong');
   });
 
+  await t.test('slash commands return local command results without model calls or stored messages', async () => {
+    const before = faux.state.callCount;
+    socket.send(JSON.stringify({ type: 'chat', id: 'command-switch', botId: bot.id, chatKey: 'web:commands', text: '/bot coder' }));
+    const switched = await next(message => message.type === 'command_result' && message.requestId === 'command-switch');
+    assert.equal(switched.command.switchBot, 'coder');
+    assert.match(switched.command.reply, /Switched to Coder/);
+    socket.send(JSON.stringify({ type: 'chat', id: 'command-new', botId: bot.id, chatKey: 'web:commands', text: '/new' }));
+    assert.equal((await next(message => message.type === 'command_result' && message.requestId === 'command-new')).command.newConversation, true);
+    const httpCommand = await request('chat', 'POST', { botId: bot.id, chatKey: 'web:commands', text: '/help' });
+    assert.match(httpCommand.command.reply, /\/learn/);
+    assert.equal(faux.state.callCount, before);
+    assert.deepEqual(await request('sessions?bot=smoke-bot&chat=web%3Acommands'), { session: null, messages: [] });
+  });
+
   await t.test('WebSocket chat streams, persists, resets and reports unavailable models', async () => {
     faux.setResponses([fauxAssistantMessage('Hello from the smoke model')]);
     socket.send(JSON.stringify({ type: 'chat', id: 'smoke-chat', botId: bot.id, chatKey: 'web:smoke', text: 'Hello' }));
@@ -199,6 +244,38 @@ test('web contracts against the real daemon with isolated storage', { timeout: 4
     assert.equal(resolved.resolved.decision, 'deny');
     assert.deepEqual(await request('approvals'), []);
     assert.equal((await request('approvals/log'))[0].decision, 'deny');
+  });
+
+  await t.test('remembered approval updates only the chosen bot category', async () => {
+    const pending = app.sb.approvals.request({ botId: bot.id, botName: bot.name, chatKey: 'web:remember', channel: 'web', toolName: 'write_file', category: 'write', summary: 'Remember smoke approval; no tool executes', args: { path: 'remember.txt', content: 'not executed' } });
+    const created = await next(message => message.type === 'approval' && message.request.chatKey === 'web:remember');
+    await request(`approvals/${created.request.id}`, 'POST', { decision: 'allow', by: 'web-smoke', remember: true });
+    assert.equal((await pending).remember, true);
+    const resolved = await next(message => message.type === 'approval_resolved' && message.resolved.id === created.request.id);
+    assert.equal(resolved.resolved.remember, true);
+    const changed = (await request('bots')).find(b => b.id === bot.id);
+    assert.equal(changed.policy.write, 'auto');
+    assert.equal(changed.policy.shell, 'never');
+    const stored = JSON.parse(await readFile(path.join(home, 'bots', `${bot.id}.json`), 'utf8'));
+    assert.equal(stored.policy.write, 'auto');
+  });
+
+  await t.test('explicit learning produces a six-hour suggestion and saves only after approval', async () => {
+    await request('bots/smoke-bot', 'PUT', bot);
+    faux.setResponses([fauxAssistantMessage('Finished a reusable task.')]);
+    await request('chat', 'POST', { botId: bot.id, chatKey: 'web:learn', text: 'A completed repeatable procedure' });
+    const proposal = { save: true, name: 'learned-smoke-procedure', description: 'Repeat the smoke procedure safely.', body: '# Smoke procedure\n1. Read the input carefully.\n2. Apply the smallest change.\n3. Run the verification command and inspect its result.' };
+    faux.setResponses([fauxAssistantMessage(JSON.stringify(proposal))]);
+    const learned = await request('learn', 'POST', { botId: bot.id, chatKey: 'web:learn', hint: 'Keep the useful procedure.' });
+    assert.equal(learned.proposed.name, proposal.name);
+    const created = await next(message => message.type === 'approval' && message.request.toolName === 'save_skill' && message.request.args.name === proposal.name);
+    assert.equal(created.request.expiresAt - created.request.createdAt, 6 * 60 * 60 * 1000);
+    assert.ok(!(await request('skills')).some(skill => skill.name === proposal.name));
+    await request(`approvals/${created.request.id}`, 'POST', { decision: 'allow', by: 'web-smoke' });
+    assert.equal((await next(message => message.type === 'skill_learned' && message.name === proposal.name)).name, proposal.name);
+    assert.equal((await request(`skills/${proposal.name}`)).body, proposal.body);
+    assert.equal((await request(`skills/${proposal.name}`)).source, 'user');
+    assert.deepEqual(await request('approvals'), []);
   });
 
   await t.test('bot delete leaves other bots available', async () => {

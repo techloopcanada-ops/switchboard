@@ -7,13 +7,19 @@ export type ServerMessage =
   | { type: 'approval'; request: ApprovalRequest }
   | { type: 'approval_resolved'; resolved: ApprovalResolved }
   | { type: 'chat_result'; requestId: string; result: { error?: string; sessionId: string } }
+  | { type: 'command_result'; requestId: string; command: { reply: string; switchBot?: string; newConversation?: boolean } }
+  | { type: 'skill_learned'; name: string }
   | { type: 'error'; requestId?: string; message: string }
   | { type: 'abort_result'; ok: boolean }
-  | { type: 'approve_result' | 'pong' };
+  | { type: 'approve_result'; id: string; ok: boolean }
+  | { type: 'pong' };
+export interface ApprovalDecision { decision: 'allow' | 'deny'; by: string; remember?: boolean }
 export interface Message {
   role: 'user' | 'assistant' | 'toolResult';
-  content: string | { type: string; text?: string; name?: string; arguments?: unknown }[];
+  content: string | { type: string; id?: string; text?: string; name?: string; arguments?: unknown }[];
   toolName?: string;
+  toolCallId?: string;
+  isError?: boolean;
   errorMessage?: string;
   usage?: { input: number; output: number; cost: { total: number } };
 }

@@ -1,0 +1,298 @@
+{
+  "testedAt": "2026-10-26T02:25:36.157Z",
+  "fixture": "browser-preview.mjs (real daemon + local fauxProvider)",
+  "checks": [
+    {
+      "check": "open conversation and draft restored on reload",
+      "pass": true
+    },
+    {
+      "check": "changing bot keeps the previous bot conversation in the list",
+      "pass": true
+    },
+    {
+      "check": "/bot coder switches locally and creates no conversation row; faux provider callCount separately asserted by fixture self-test/API tests",
+      "pass": true
+    },
+    {
+      "check": "inline Allow completes the write and shows the reply",
+      "pass": true
+    },
+    {
+      "check": "Always allow permits the next write without a prompt",
+      "pass": true
+    },
+    {
+      "check": "Learn proposes a rendered skill card; Save produces Learned toast",
+      "pass": true
+    },
+    {
+      "check": "1280 light long multiline input/caret visible and composer in viewport",
+      "pass": true,
+      "metrics": {
+        "background": "rgb(255, 255, 255)",
+        "caret": "rgb(35, 56, 46)",
+        "clientHeight": 216,
+        "color": "rgb(35, 56, 46)",
+        "composer": {
+          "bottom": 900.0000305175781,
+          "height": 287.3333435058594,
+          "left": 446,
+          "right": 1274,
+          "top": 612.6666870117188,
+          "width": 828,
+          "x": 446,
+          "y": 612.6666870117188
+        },
+        "documentWidth": 1280,
+        "font": "16px",
+        "height": 900,
+        "length": 618,
+        "placeholder": "rgb(113, 128, 119)",
+        "scrollHeight": 360,
+        "scrollTop": 144,
+        "selection": 618,
+        "send": {
+          "bottom": 884,
+          "height": 38,
+          "left": 1180.385498046875,
+          "right": 1250.0000839233398,
+          "top": 846,
+          "width": 69.61458587646484,
+          "x": 1180.385498046875,
+          "y": 846
+        },
+        "textarea": {
+          "bottom": 837.3333740234375,
+          "height": 216,
+          "left": 470.6666870117187,
+          "right": 1249.3333740234375,
+          "top": 621.3333740234375,
+          "width": 778.6666870117188,
+          "x": 470.6666870117187,
+          "y": 621.3333740234375
+        },
+        "width": 1280
+      }
+    },
+    {
+      "check": "1280 dark long multiline input/caret visible and composer in viewport",
+      "pass": true,
+      "metrics": {
+        "background": "rgb(26, 40, 31)",
+        "caret": "rgb(227, 238, 230)",
+        "clientHeight": 216,
+        "color": "rgb(227, 238, 230)",
+        "composer": {
+          "bottom": 900.0000305175781,
+          "height": 287.3333435058594,
+          "left": 446,
+          "right": 1274,
+          "top": 612.6666870117188,
+          "width": 828,
+          "x": 446,
+          "y": 612.6666870117188
+        },
+        "documentWidth": 1280,
+        "font": "16px",
+        "height": 900,
+        "length": 618,
+        "placeholder": "rgb(148, 168, 154)",
+        "scrollHeight": 360,
+        "scrollTop": 144,
+        "selection": 618,
+        "send": {
+          "bottom": 884,
+          "height": 38,
+          "left": 1180.385498046875,
+          "right": 1250.0000839233398,
+          "top": 846,
+          "width": 69.61458587646484,
+          "x": 1180.385498046875,
+          "y": 846
+        },
+        "textarea": {
+          "bottom": 837.3333740234375,
+          "height": 216,
+          "left": 470.6666870117187,
+          "right": 1249.3333740234375,
+          "top": 621.3333740234375,
+          "width": 778.6666870117188,
+          "x": 470.6666870117187,
+          "y": 621.3333740234375
+        },
+        "width": 1280
+      }
+    },
+    {
+      "check": "360 dark tail typing visible with no horizontal overflow",
+      "pass": true,
+      "metrics": {
+        "background": "rgb(26, 40, 31)",
+        "caret": "rgb(227, 238, 230)",
+        "clientHeight": 216,
+        "color": "rgb(227, 238, 230)",
+        "composer": {
+          "bottom": 780.0000305175781,
+          "height": 281.3333435058594,
+          "left": 0,
+          "right": 360,
+          "top": 498.6666870117187,
+          "width": 360,
+          "x": 0,
+          "y": 498.6666870117187
+        },
+        "documentWidth": 360,
+        "font": "16px",
+        "height": 780,
+        "length": 624,
+        "placeholder": "rgb(148, 168, 154)",
+        "scrollHeight": 480,
+        "scrollTop": 264,
+        "selection": 624,
+        "send": {
+          "bottom": 768,
+          "height": 36,
+          "left": 290.0520935058594,
+          "right": 348.0000114440918,
+          "top": 732,
+          "width": 57.94791793823242,
+          "x": 290.0520935058594,
+          "y": 732
+        },
+        "textarea": {
+          "bottom": 723.3333435058594,
+          "height": 216,
+          "left": 12.666666984558104,
+          "right": 347.33335399627686,
+          "top": 507.3333435058594,
+          "width": 334.66668701171875,
+          "x": 12.666666984558104,
+          "y": 507.3333435058594
+        },
+        "width": 360
+      }
+    },
+    {
+      "check": "360 light multiline composer and typed tail visible",
+      "pass": true,
+      "metrics": {
+        "background": "rgb(255, 255, 255)",
+        "caret": "rgb(35, 56, 46)",
+        "clientHeight": 216,
+        "color": "rgb(35, 56, 46)",
+        "composer": {
+          "bottom": 780.0000305175781,
+          "height": 281.3333435058594,
+          "left": 0,
+          "right": 360,
+          "top": 498.6666870117187,
+          "width": 360,
+          "x": 0,
+          "y": 498.6666870117187
+        },
+        "documentWidth": 360,
+        "font": "16px",
+        "height": 780,
+        "length": 624,
+        "placeholder": "rgb(113, 128, 119)",
+        "scrollHeight": 480,
+        "scrollTop": 264,
+        "selection": 624,
+        "send": {
+          "bottom": 768,
+          "height": 36,
+          "left": 290.0520935058594,
+          "right": 348.0000114440918,
+          "top": 732,
+          "width": 57.94791793823242,
+          "x": 290.0520935058594,
+          "y": 732
+        },
+        "textarea": {
+          "bottom": 723.3333435058594,
+          "height": 216,
+          "left": 12.666666984558104,
+          "right": 347.33335399627686,
+          "top": 507.3333435058594,
+          "width": 334.66668701171875,
+          "x": 12.666666984558104,
+          "y": 507.3333435058594
+        },
+        "width": 360
+      }
+    },
+    {
+      "check": "command picker Tab completes then exits; ShiftTab exits; ArrowDown keeps selected option visible on mobile",
+      "pass": true
+    },
+    {
+      "check": "switching back to another bot restores that conversation’s draft",
+      "pass": true
+    },
+    {
+      "check": "new-chat drafts remain reachable locally without creating server conversations",
+      "pass": true
+    },
+    {
+      "check": "completion never clears a next draft identical to the submitted message",
+      "pass": true
+    },
+    {
+      "check": "model errors restore the draft and expose one inline Retry that restores its prompt",
+      "pass": true
+    },
+    {
+      "check": "rename updates header and list; search filters renamed title",
+      "pass": true
+    },
+    {
+      "check": "confirmed deletion removes selected conversation and opens a new empty chat",
+      "pass": true
+    },
+    {
+      "check": "mobile drawer focuses Close, traps ShiftTab on visible controls, and Escape restores Chats trigger",
+      "pass": true
+    },
+    {
+      "check": "skill-learning toggle and threshold persist through save/reload",
+      "pass": true
+    },
+    {
+      "check": "Skills shows learned user skill and Yours/Bundled badges",
+      "pass": true
+    },
+    {
+      "check": "Bots screen renders after layout overhaul",
+      "pass": true
+    },
+    {
+      "check": "Workflows screen renders after layout overhaul",
+      "pass": true
+    },
+    {
+      "check": "Memory screen renders after layout overhaul",
+      "pass": true
+    },
+    {
+      "check": "Pair screen renders after layout overhaul",
+      "pass": true
+    },
+    {
+      "check": "Approvals screen renders after layout overhaul",
+      "pass": true
+    },
+    {
+      "check": "manual scroll exposes Jump to latest; jump returns to bottom; code Copy writes the exact block",
+      "pass": true
+    },
+    {
+      "check": "Get started remains reachable with the provider setup flow",
+      "pass": true
+    },
+    {
+      "check": "Stop aborts an active run and restores composer focus",
+      "pass": true
+    }
+  ]
+}

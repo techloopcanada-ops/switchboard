@@ -1,0 +1,18 @@
+{
+  "checks": [
+    "reload restores conversation and draft",
+    "all-bot list persists and slash bot command switches locally",
+    "unknown slash path reaches faux model",
+    "Allow completes and Always allow removes next write prompt",
+    "shell Always allow requires confirmation; cancelling leaves approval pending",
+    "self-modify Always allow requires confirmation; cancelling leaves approval pending",
+    "1280 light: multiline tail/composer/Send visible",
+    "1280 dark: multiline tail/composer/Send visible",
+    "360 light: multiline tail/composer/Send visible",
+    "360 dark: multiline tail/composer/Send visible",
+    "empty session GET returns null and does not change server row count (API assertion)",
+    "preview logged exactly 12 expected model calls; /bot added none",
+    "final build reload and console clean after race fixes"
+  ],
+  "passed": true
+}
