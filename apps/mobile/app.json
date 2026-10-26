@@ -28,7 +28,10 @@
         "backgroundColor": "#0B1020",
         "foregroundImage": "./assets/adaptive-icon.png"
       },
-      "permissions": ["android.permission.CAMERA", "android.permission.POST_NOTIFICATIONS"],
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
       "blockedPermissions": [
         "android.permission.RECORD_AUDIO",
         "android.permission.READ_EXTERNAL_STORAGE",
@@ -38,13 +41,30 @@
       "predictiveBackGestureEnabled": true,
       "usesCleartextTraffic": true
     },
-    "updates": { "enabled": false },
+    "updates": {
+      "enabled": false
+    },
     "owner": "focust",
     "plugins": [
-      ["expo-camera", { "cameraPermission": "Switchboard uses the camera only to scan the pairing QR code shown by your computer." }],
-      ["expo-notifications", { "color": "#F5C542" }],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Switchboard uses the camera only to scan the pairing QR code shown by your computer."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "color": "#F5C542"
+        }
+      ],
       "expo-secure-store",
       "./plugins/with-cmake-object-path-max.js"
-    ]
+    ],
+    "extra": {
+      "eas": {
+        "projectId": "1093be0f-bd9e-4c52-9fc5-145f322f4c20"
+      }
+    }
   }
 }
