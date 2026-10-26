@@ -8,7 +8,7 @@ It takes the ideas of [Hermes Agent](https://github.com/NousResearch/hermes-agen
 
 ## Status
 
-Pre-release, built October 25, 2026. The core daemon has 16 passing tests. The web UI, desktop shell and tutorials are being built by Codex (see `docs/CODEX-BRIEF.md` and `research/codex-status.md`). The Android app builds; iOS is not started. Nothing is published to a store or registry yet.
+Pre-release 0.1.0, built October 25, 2026 by TechLoop with Claude Code and Codex. The core daemon has 17 passing tests; the web UI builds; the Windows desktop installer and an Android test APK build from this tree (see `docs/MOBILE.md`). iOS is not started. Nothing is published to an app store or package registry yet; read the security model below before giving a bot shell access.
 
 ## Quick start
 
