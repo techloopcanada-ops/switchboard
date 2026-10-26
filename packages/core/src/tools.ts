@@ -15,6 +15,8 @@ export interface SwitchboardTool<T extends TSchema = TSchema> extends AgentTool<
 /** Services a tool may call back into. Implemented by the runtime. */
 export interface ToolServices {
   skills(): Skill[];
+  /** Called after a skill file was written so the runtime reloads its skill list immediately. */
+  skillsChanged(): void;
   sendMessage(channel: string, chatId: string, text: string): Promise<void>;
   scheduleWorkflow(input: { name: string; cron: string; bot: string; prompt: string; deliverChannel?: string; deliverChatId?: string }): Promise<string>;
   describeCapabilities(): string;
@@ -199,7 +201,8 @@ export function buildTools(ctx: ToolContext): SwitchboardTool[] {
     description: 'Save a reusable skill (agentskills.io format) so future sessions can load it. Use after solving a non-trivial task.',
     async execute(_id, params: Static<typeof SaveSkillParams>) {
       const skill = writeUserSkill(params.name, params.description, params.body);
-      return text(`Saved skill ${skill.name} at ${skill.dir}`);
+      ctx.services.skillsChanged();
+      return text(`Saved skill ${skill.name}. It is available to load right away with load_skill.`);
     },
   };
 

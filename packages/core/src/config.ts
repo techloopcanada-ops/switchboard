@@ -47,6 +47,8 @@ export interface Config {
   defaultBot: string;
   approvalTimeoutSec: number;
   guideBot: boolean;
+  /** Skill learning: after a run with enough tool use, ask the bot's model whether to propose a skill. */
+  learning: { auto: boolean; minToolCalls: number };
   telegram?: TelegramConfig;
   discord?: DiscordConfig;
   devices: PushDevice[];
@@ -65,6 +67,7 @@ export function defaultConfig(): Config {
     defaultBot: 'assistant',
     approvalTimeoutSec: 300,
     guideBot: true,
+    learning: { auto: true, minToolCalls: 4 },
     devices: [],
     workdir: path.join(homeDir(), 'workspace'),
     referralCodes: {},
@@ -90,7 +93,8 @@ export function loadConfig(): Config {
     return fresh;
   }
   const parsed = JSON.parse(fs.readFileSync(file, 'utf8')) as Partial<Config>;
-  return { ...defaultConfig(), ...parsed, server: { ...defaultConfig().server, ...(parsed.server ?? {}) } };
+  const base = defaultConfig();
+  return { ...base, ...parsed, server: { ...base.server, ...(parsed.server ?? {}) }, learning: { ...base.learning, ...(parsed.learning ?? {}) } };
 }
 
 export function saveConfig(config: Config): void {

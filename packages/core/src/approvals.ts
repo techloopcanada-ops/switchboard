@@ -24,11 +24,13 @@ export interface ApprovalResolved extends ApprovalRequest {
   decision: Outcome;
   decidedBy: string;
   decidedAt: number;
+  /** The human chose "always allow": the runtime turns the bot's policy for this category to auto. */
+  remember?: boolean;
 }
 
 interface Pending {
   request: ApprovalRequest;
-  finish: (decision: Outcome, decidedBy: string) => void;
+  finish: (decision: Outcome, decidedBy: string, remember?: boolean) => void;
 }
 
 /**
@@ -52,17 +54,19 @@ export class ApprovalCenter extends EventEmitter<{ created: [ApprovalRequest]; r
     return this.pending.get(id)?.request;
   }
 
-  request(input: Omit<ApprovalRequest, 'id' | 'createdAt' | 'expiresAt'>, signal?: AbortSignal): Promise<ApprovalResolved> {
+  /** `timeoutMs` overrides the default for long-lived requests such as skill suggestions. */
+  request(input: Omit<ApprovalRequest, 'id' | 'createdAt' | 'expiresAt'>, signal?: AbortSignal, timeoutMs?: number): Promise<ApprovalResolved> {
     const createdAt = Date.now();
-    const request: ApprovalRequest = { ...input, id: randomUUID(), createdAt, expiresAt: createdAt + this.timeoutMs };
+    const lifetime = timeoutMs ?? this.timeoutMs;
+    const request: ApprovalRequest = { ...input, id: randomUUID(), createdAt, expiresAt: createdAt + lifetime };
     return new Promise<ApprovalResolved>(resolve => {
       const onAbort = () => finish('aborted', 'system');
-      const timer = setTimeout(() => finish('timeout', 'system'), this.timeoutMs);
-      const finish = (decision: Outcome, decidedBy: string) => {
+      const timer = setTimeout(() => finish('timeout', 'system'), lifetime);
+      const finish = (decision: Outcome, decidedBy: string, remember?: boolean) => {
         if (!this.pending.delete(request.id)) return;
         clearTimeout(timer);
         signal?.removeEventListener('abort', onAbort);
-        const resolved: ApprovalResolved = { ...request, decision, decidedBy, decidedAt: Date.now() };
+        const resolved: ApprovalResolved = { ...request, decision, decidedBy, decidedAt: Date.now(), ...(remember ? { remember: true } : {}) };
         resolve(resolved);
         this.emit('resolved', resolved);
       };
@@ -76,10 +80,10 @@ export class ApprovalCenter extends EventEmitter<{ created: [ApprovalRequest]; r
     });
   }
 
-  decide(id: string, decision: Decision, decidedBy: string): boolean {
+  decide(id: string, decision: Decision, decidedBy: string, remember = false): boolean {
     const entry = this.pending.get(id);
     if (!entry) return false;
-    entry.finish(decision, decidedBy);
+    entry.finish(decision, decidedBy, decision === 'allow' && remember);
     return true;
   }
 

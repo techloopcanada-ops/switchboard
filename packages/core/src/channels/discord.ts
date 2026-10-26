@@ -71,20 +71,14 @@ export class DiscordChannel implements ChannelAdapter {
         return;
       }
       if (command === 'new') {
-        const session = this.sb.store.getOrCreateSession(this.currentBot(chatId), `discord:${chatId}`, 'discord');
-        this.sb.store.resetSession(session.id);
-        await message.reply('Fresh conversation started.');
+        this.sb.store.archiveSession(this.currentBot(chatId), `discord:${chatId}`);
+        await message.reply('Fresh conversation started. The previous one is kept and visible in the app.');
         return;
       }
-      if (command === 'status') { await message.reply(this.sb.describeCapabilities().slice(0, MAX_LEN)); return; }
-      const workflow = this.sb.findCommandWorkflow(command ?? '');
-      if (workflow) {
-        await message.reply(`Running workflow ${workflow.name}…`);
-        const result = await this.sb.runWorkflow(workflow, `discord:/${command}`);
-        for (const part of chunk(result.error ? `Failed: ${result.error}` : result.text || '(no output)')) await message.reply(part);
-        return;
-      }
-      await message.reply('Commands: /bots, /bot <id>, /new, /status, or a workflow command.');
+      if ('sendTyping' in message.channel) await message.channel.sendTyping().catch(() => undefined);
+      const outcome = await this.sb.command(text, { botId: this.currentBot(chatId), chatKey: `discord:${chatId}` });
+      if (outcome) { for (const part of chunk(outcome.reply)) await message.reply(part); return; }
+      await message.reply('Commands: /help, /bots, /bot <id>, /new, /skills, /learn, /usage, /status, or a workflow command.');
       return;
     }
     const botId = this.currentBot(chatId);

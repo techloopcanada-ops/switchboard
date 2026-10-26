@@ -35,7 +35,12 @@ export interface Bot {
   policy: Partial<Record<ToolCategory, ApprovalMode>>;
   workdir?: string;
   builtin?: boolean;
+  /** Which revision of the built-in definition this bot was last upgraded to. */
+  builtinVersion?: number;
 }
+
+/** Bump when built-in bots gain tools or defaults that existing installs should receive. */
+export const BUILTIN_VERSION = 2;
 
 const ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,39}$/;
 
@@ -80,7 +85,19 @@ export function validateBot(input: unknown): Bot {
     policy,
     workdir: typeof b.workdir === 'string' && b.workdir ? b.workdir : undefined,
     builtin: b.builtin === true,
+    builtinVersion: typeof b.builtinVersion === 'number' ? b.builtinVersion : undefined,
   };
+}
+
+/**
+ * Give stored built-in bots the tools added since they were created (never removing anything the user
+ * chose, and keeping model, prompt, budget and policy). Returns the bot unchanged when it is already current.
+ */
+export function upgradeBuiltinBot(stored: Bot, fresh: Bot): Bot {
+  if (!stored.builtin || (stored.builtinVersion ?? 1) >= BUILTIN_VERSION) return stored;
+  const tools = stored.tools === '*' || fresh.tools === '*' ? stored.tools
+    : [...new Set([...stored.tools, ...fresh.tools])];
+  return { ...stored, tools, builtinVersion: BUILTIN_VERSION };
 }
 
 export function loadBots(): Bot[] {
@@ -131,17 +148,17 @@ export function builtinBots(defaultModel: { provider: string; id: string }): Bot
   return [
     validateBot({
       id: 'assistant', name: 'Assistant', emoji: '💬', description: 'General helper with read-only tools and memory.',
-      systemPrompt: ASSISTANT_PROMPT, model: defaultModel, thinking: 'off', tools: ['read_file', 'list_dir', 'web_fetch', 'remember', 'load_skill'],
-      skills: '*', memory: true, budgetUsd: 0, policy: {}, builtin: true,
+      systemPrompt: ASSISTANT_PROMPT, model: defaultModel, thinking: 'off', tools: ['read_file', 'list_dir', 'web_fetch', 'remember', 'load_skill', 'save_skill'],
+      skills: '*', memory: true, budgetUsd: 0, policy: {}, builtin: true, builtinVersion: BUILTIN_VERSION,
     }),
     validateBot({
       id: 'coder', name: 'Coder', emoji: '🛠️', description: 'Coding agent with files, shell, web and skills. Writes and shell runs ask for approval.',
-      systemPrompt: CODER_PROMPT, model: defaultModel, thinking: 'medium', tools: '*', skills: '*', memory: true, budgetUsd: 0, policy: {}, builtin: true,
+      systemPrompt: CODER_PROMPT, model: defaultModel, thinking: 'medium', tools: '*', skills: '*', memory: true, budgetUsd: 0, policy: {}, builtin: true, builtinVersion: BUILTIN_VERSION,
     }),
     validateBot({
       id: 'guide', name: 'Guide', emoji: '🧭', description: 'Tutorial bot that explains this installation and how to use it.',
       systemPrompt: GUIDE_PROMPT, model: defaultModel, thinking: 'off', tools: ['describe_capabilities', 'load_skill'], skills: '*', memory: false, budgetUsd: 0,
-      policy: {}, builtin: true,
+      policy: {}, builtin: true, builtinVersion: BUILTIN_VERSION,
     }),
   ];
 }

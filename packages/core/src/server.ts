@@ -90,6 +90,7 @@ export function createServer(sb: Switchboard, options: ServerOptions = {}): Serv
   sb.on('approval', request => broadcast({ type: 'approval', request }));
   sb.on('approval_resolved', resolved => broadcast({ type: 'approval_resolved', resolved }));
   sb.on('bots', bots => broadcast({ type: 'bots', bots }));
+  sb.on('skill_learned', name => broadcast({ type: 'skill_learned', name }));
 
   function authorized(req: http.IncomingMessage, url: URL): boolean {
     const header = req.headers.authorization ?? '';
@@ -124,14 +125,17 @@ export function createServer(sb: Switchboard, options: ServerOptions = {}): Serv
         case 'chat': {
           const { botId, chatKey, text } = message as { botId?: string; chatKey?: string; text?: string };
           if (!botId || !chatKey || typeof text !== 'string' || !text.trim()) throw new Error('chat needs botId, chatKey and text.');
+          // Slash commands are answered here and never reach the model.
+          const command = await sb.command(text, { botId, chatKey });
+          if (command) { reply({ type: 'command_result', requestId: message.id, command }); break; }
           const result = await sb.chat({ botId, chatKey, channel: chatKey.split(':')[0] ?? 'web', text });
           reply({ type: 'chat_result', requestId: message.id, result });
           break;
         }
         case 'approve': {
-          const { id, decision, by } = message as { id?: string; decision?: string; by?: string };
+          const { id, decision, by, remember } = message as { id?: string; decision?: string; by?: string; remember?: boolean };
           if (!id || (decision !== 'allow' && decision !== 'deny')) throw new Error('approve needs id and decision.');
-          reply({ type: 'approve_result', id, ok: sb.approvals.decide(id, decision, by ?? 'ws') });
+          reply({ type: 'approve_result', id, ok: sb.approvals.decide(id, decision, by ?? 'ws', remember === true) });
           break;
         }
         case 'abort': {
@@ -168,7 +172,7 @@ export function createServer(sb: Switchboard, options: ServerOptions = {}): Serv
       sendJson(res, 200, {
         version: VERSION, uptimeSec: Math.round((Date.now() - sb.startedAt) / 1000), bots: sb.listBots(), providersConfigured: providers,
         defaultModel: sb.config.defaultModel ?? null, channels: sb.channelIds(), approvals: sb.approvals.list(), devices: sb.config.devices.length,
-        pair: sb.pairingInfo(), guideBot: sb.config.guideBot, workdir: sb.config.workdir,
+        pair: sb.pairingInfo(), guideBot: sb.config.guideBot, workdir: sb.config.workdir, learning: sb.config.learning,
       });
       return;
     }
@@ -206,29 +210,50 @@ export function createServer(sb: Switchboard, options: ServerOptions = {}): Serv
       }
     }
     if (head === 'sessions') {
+      // All conversations that have messages, across every bot unless ?bot= narrows it. Empty ones are hidden.
       if (method === 'GET' && second === 'list') { sendJson(res, 200, sb.store.listSessions(url.searchParams.get('bot') ?? undefined)); return; }
       if (method === 'GET' && !second) {
         const botId = url.searchParams.get('bot');
         const chatKey = url.searchParams.get('chat');
         if (!botId || !chatKey) throw new HttpError(400, 'bot and chat query parameters are required.');
         if (!sb.getBot(botId)) throw new HttpError(404, 'Unknown bot.');
-        const session = sb.store.getOrCreateSession(botId, chatKey, chatKey.split(':')[0] ?? 'web');
-        sendJson(res, 200, { session, messages: sb.store.loadMessages(session.id) });
+        // Opening a conversation never creates one: it exists once the first message is sent.
+        const session = sb.store.findSession(botId, chatKey) ?? null;
+        sendJson(res, 200, { session, messages: session ? sb.store.loadMessages(session.id) : [] });
         return;
       }
       if (method === 'POST' && second === 'reset') {
         const body = await readJson(req) as { botId?: string; chatKey?: string };
         if (!body.botId || !body.chatKey) throw new HttpError(400, 'botId and chatKey are required.');
-        const session = sb.store.getOrCreateSession(body.botId, body.chatKey, body.chatKey.split(':')[0] ?? 'web');
-        sb.store.resetSession(session.id);
+        const session = sb.store.findSession(body.botId, body.chatKey);
+        if (session) sb.store.resetSession(session.id);
         sendJson(res, 200, { ok: true });
+        return;
+      }
+      if (method === 'PUT' && second) {
+        const body = await readJson(req) as { title?: string };
+        if (typeof body.title !== 'string' || !body.title.trim()) throw new HttpError(400, 'title is required.');
+        sendJson(res, 200, { ok: sb.store.renameSession(second, body.title) });
+        return;
+      }
+      if (method === 'DELETE' && second) {
+        sb.abort(second);
+        sendJson(res, 200, { ok: sb.store.deleteSession(second) });
         return;
       }
     }
     if (head === 'chat' && method === 'POST') {
       const body = await readJson(req) as { botId?: string; chatKey?: string; text?: string };
       if (!body.botId || !body.chatKey || !body.text?.trim()) throw new HttpError(400, 'botId, chatKey and text are required.');
+      const command = await sb.command(body.text, { botId: body.botId, chatKey: body.chatKey });
+      if (command) { sendJson(res, 200, { command }); return; }
       sendJson(res, 200, await sb.chat({ botId: body.botId, chatKey: body.chatKey, channel: body.chatKey.split(':')[0] ?? 'web', text: body.text }));
+      return;
+    }
+    if (head === 'learn' && method === 'POST') {
+      const body = await readJson(req) as { botId?: string; chatKey?: string; hint?: string };
+      if (!body.botId || !body.chatKey) throw new HttpError(400, 'botId and chatKey are required.');
+      sendJson(res, 200, await sb.learnFrom(body.botId, body.chatKey, { hint: body.hint, channel: body.chatKey.split(':')[0] ?? 'web' }));
       return;
     }
     if (head === 'abort' && method === 'POST') {
@@ -240,9 +265,9 @@ export function createServer(sb: Switchboard, options: ServerOptions = {}): Serv
       if (method === 'GET' && !second) { sendJson(res, 200, sb.approvals.list()); return; }
       if (method === 'GET' && second === 'log') { sendJson(res, 200, sb.store.recentApprovals()); return; }
       if (method === 'POST' && second) {
-        const body = await readJson(req) as { decision?: string; by?: string };
+        const body = await readJson(req) as { decision?: string; by?: string; remember?: boolean };
         if (body.decision !== 'allow' && body.decision !== 'deny') throw new HttpError(400, 'decision must be allow or deny.');
-        sendJson(res, 200, { ok: sb.approvals.decide(second, body.decision, body.by ?? 'api') });
+        sendJson(res, 200, { ok: sb.approvals.decide(second, body.decision, body.by ?? 'api', body.remember === true) });
         return;
       }
     }
@@ -388,6 +413,13 @@ export function sanitizeConfigPatch(current: Config, body: Record<string, unknow
   if (typeof body.defaultBot === 'string') patch.defaultBot = body.defaultBot;
   if (typeof body.approvalTimeoutSec === 'number' && body.approvalTimeoutSec >= 5 && body.approvalTimeoutSec <= 86400) patch.approvalTimeoutSec = Math.round(body.approvalTimeoutSec);
   if (typeof body.guideBot === 'boolean') patch.guideBot = body.guideBot;
+  if (body.learning && typeof body.learning === 'object') {
+    const l = body.learning as { auto?: unknown; minToolCalls?: unknown };
+    patch.learning = {
+      auto: typeof l.auto === 'boolean' ? l.auto : current.learning.auto,
+      minToolCalls: typeof l.minToolCalls === 'number' && l.minToolCalls >= 1 && l.minToolCalls <= 50 ? Math.round(l.minToolCalls) : current.learning.minToolCalls,
+    };
+  }
   if (typeof body.workdir === 'string' && body.workdir.trim()) patch.workdir = body.workdir.trim();
   if (body.server && typeof body.server === 'object') {
     const s = body.server as { host?: unknown; port?: unknown };

@@ -5,12 +5,13 @@ import path from 'node:path';
 import { Agent, type AgentEvent, type BeforeToolCallContext, type BeforeToolCallResult } from '@earendil-works/pi-agent-core';
 import type { AssistantMessage, Message } from '@earendil-works/pi-ai';
 import { ApprovalCenter, summarizeToolCall, type ApprovalRequest, type ApprovalResolved } from './approvals.ts';
-import { builtinBots, effectivePolicy, loadBots, saveBot, type Bot, type ToolCategory } from './bots.ts';
+import { builtinBots, effectivePolicy, loadBots, saveBot, upgradeBuiltinBot, type Bot, type ToolCategory } from './bots.ts';
 import { ensureHome, loadConfig, saveConfig, type Config } from './config.ts';
+import { buildDigest, parseProposal, REFLECT_SYSTEM, type SkillProposal } from './learning.ts';
 import { memoryPromptSection } from './memory.ts';
 import { ModelRegistry } from './models.ts';
 import { SessionStore, type SessionRow } from './sessions.ts';
-import { loadSkills, skillsManifest, type Skill } from './skills.ts';
+import { loadSkills, skillsManifest, writeUserSkill, type Skill } from './skills.ts';
 import { buildTools, type SwitchboardTool, type ToolServices } from './tools.ts';
 import { loadWorkflows, saveWorkflowYaml, workflowToYaml, WorkflowScheduler, type Workflow } from './workflows.ts';
 
@@ -42,6 +43,30 @@ export interface ChatResult {
   error?: string;
 }
 
+/** What a slash command did. UIs apply `switchBot` and `newConversation`; `reply` is shown to the user, never sent to the model. */
+export interface CommandOutcome {
+  reply: string;
+  switchBot?: string;
+  newConversation?: boolean;
+}
+
+export const COMMAND_HELP = [
+  '/help — this list',
+  '/bots — list bots',
+  '/bot <id> — switch bot for this chat',
+  '/new — start a new conversation (the old one is kept)',
+  '/skills — list installed skills',
+  '/learn [hint] — review this conversation and suggest a skill to save',
+  '/usage — spend this month',
+  '/status — what this Switchboard can do',
+].join('\n');
+
+const COMMAND_NAMES = new Set(['help', 'bots', 'bot', 'new', 'skills', 'learn', 'usage', 'status']);
+const LEARN_COOLDOWN_MS = 15 * 60_000;
+const SKILL_PROPOSAL_LIFETIME_MS = 6 * 60 * 60_000;
+/** Tool calls that say nothing about having done real work, so they do not count toward learning. */
+const NOT_WORK = new Set(['load_skill', 'describe_capabilities', 'remember', 'save_skill']);
+
 export interface ChannelAdapter {
   id: string;
   start(): Promise<void>;
@@ -57,6 +82,7 @@ interface Events {
   approval_resolved: [ApprovalResolved];
   config: [Config];
   bots: [Bot[]];
+  skill_learned: [string];
 }
 
 export const VERSION = '0.1.0';
@@ -77,6 +103,8 @@ export class Switchboard extends EventEmitter<Events> {
   private readonly active = new Map<string, Agent>();
   readonly startedAt = Date.now();
   private runCounter = 0;
+  private readonly background = new Set<Promise<unknown>>();
+  private readonly lastLearn = new Map<string, number>();
 
   private constructor(config: Config) {
     super();
@@ -89,6 +117,7 @@ export class Switchboard extends EventEmitter<Events> {
   static async create(): Promise<Switchboard> {
     ensureHome();
     const sb = new Switchboard(loadConfig());
+    sb.store.purgeEmptySessions();
     await sb.registry.applyConfig(sb.config);
     sb.reloadBots();
     sb.reloadSkills();
@@ -104,6 +133,7 @@ export class Switchboard extends EventEmitter<Events> {
     });
     center.on('resolved', resolved => {
       this.store.logApproval({ id: resolved.id, botId: resolved.botId, tool: resolved.toolName, args: resolved.args, decision: resolved.decision, decidedBy: resolved.decidedBy, createdAt: resolved.createdAt });
+      if (resolved.remember && resolved.decision === 'allow') this.rememberAllow(resolved.botId, resolved.category);
       this.emit('approval_resolved', resolved);
       for (const channel of this.channels.values()) channel.notifyResolved?.(resolved).catch(() => undefined);
     });
@@ -136,14 +166,29 @@ export class Switchboard extends EventEmitter<Events> {
 
   // ---- bots, skills, workflows ---------------------------------------------
 
+  /** "Always allow": turn the bot's approval policy for this tool category to auto, and keep it. */
+  private rememberAllow(botId: string, category: ToolCategory): void {
+    const bot = this.bots.get(botId);
+    if (!bot) return;
+    this.upsertBot({ ...bot, policy: { ...bot.policy, [category]: 'auto' } });
+  }
+
   reloadBots(): Bot[] {
     let bots = loadBots();
     const fallback = this.config.defaultModel ?? { provider: 'openrouter', id: 'anthropic/claude-sonnet-4.5' };
+    const fresh = builtinBots(fallback);
     if (!bots.length) {
-      bots = builtinBots(fallback).map(b => saveBot(b));
-    } else if (this.config.guideBot && !bots.some(b => b.id === 'guide')) {
-      const guide = builtinBots(fallback).find(b => b.id === 'guide');
-      if (guide) bots.push(saveBot(guide));
+      bots = fresh.map(b => saveBot(b));
+    } else {
+      if (this.config.guideBot && !bots.some(b => b.id === 'guide')) {
+        const guide = fresh.find(b => b.id === 'guide');
+        if (guide) bots.push(saveBot(guide));
+      }
+      // Existing installs receive tools added to the built-in bots since they were created.
+      bots = bots.map(bot => {
+        const upgraded = upgradeBuiltinBot(bot, fresh.find(f => f.id === bot.id) ?? bot);
+        return upgraded === bot ? bot : saveBot(upgraded);
+      });
     }
     this.bots = new Map(bots.map(b => [b.id, b]));
     this.emit('bots', bots);
@@ -170,8 +215,9 @@ export class Switchboard extends EventEmitter<Events> {
     return this.skills;
   }
 
+  /** Always reads the skills folders, so skills added by a bot, by hand or by another process show up at once. */
   listSkills(): Skill[] {
-    return this.skills;
+    return this.reloadSkills();
   }
 
   reloadWorkflows(): { workflows: Workflow[]; errors: Record<string, string>; nextRuns: Record<string, string | null> } {
@@ -273,8 +319,12 @@ export class Switchboard extends EventEmitter<Events> {
 
     const workdir = bot.workdir ?? this.config.workdir;
     fs.mkdirSync(workdir, { recursive: true });
+    this.reloadSkills();
     const tools = this.toolsFor(bot, { botId: bot.id, chatKey: input.chatKey, channel: input.channel, workdir });
     const history = this.store.loadMessages<Message>(session.id).filter(m => m.role !== 'system');
+    let seq = this.store.messageCount(session.id);
+    let toolWork = 0;
+    let savedSkill = false;
     const agent = new Agent({
       initialState: { systemPrompt: this.systemPrompt(bot, tools, input.channel, workdir), model, tools, messages: history, thinkingLevel: bot.thinking },
       streamFn: this.registry.streamFn,
@@ -292,7 +342,13 @@ export class Switchboard extends EventEmitter<Events> {
         case 'message_update':
           if (event.assistantMessageEvent.type === 'text_delta') emit({ type: 'delta', runId, text: event.assistantMessageEvent.delta });
           break;
-        case 'message_end':
+        case 'message_end': {
+          // Save every finished message at once, so a crash, restart or lost connection never loses the conversation.
+          const finished = event.message;
+          if (finished.role === 'user' || finished.role === 'assistant' || finished.role === 'toolResult') {
+            this.store.appendMessage(session.id, seq++, finished);
+            if (finished.role === 'user') this.store.setTitleIfEmpty(session.id, titleFrom(input.text));
+          }
           if (event.message.role === 'assistant') {
             const m = event.message as AssistantMessage;
             cost += m.usage.cost.total;
@@ -302,10 +358,15 @@ export class Switchboard extends EventEmitter<Events> {
             if (m.stopReason === 'error' || m.stopReason === 'aborted') errorMessage = m.errorMessage ?? m.stopReason;
           }
           break;
+        }
         case 'tool_execution_start':
           emit({ type: 'tool_start', runId, toolCallId: event.toolCallId, toolName: event.toolName, args: event.args });
           break;
         case 'tool_execution_end':
+          if (!event.isError) {
+            if (!NOT_WORK.has(event.toolName)) toolWork++;
+            if (event.toolName === 'save_skill') savedSkill = true;
+          }
           emit({ type: 'tool_end', runId, toolCallId: event.toolCallId, toolName: event.toolName, isError: event.isError, output: resultText(event.result).slice(0, 2000) });
           break;
         default:
@@ -321,12 +382,111 @@ export class Switchboard extends EventEmitter<Events> {
       this.active.delete(session.id);
     }
     const messages = agent.state.messages.filter(m => m.role !== 'system');
-    const title = session.title || input.text.replace(/\s+/g, ' ').slice(0, 60);
-    this.store.replaceMessages(session.id, messages, title);
     const text = lastAssistantText(messages);
     if (errorMessage && !text) return fail(errorMessage);
     emit({ type: 'done', runId, text, costUsd: cost, inputTokens, outputTokens });
+    if (!errorMessage) this.maybeLearn(bot, session, input, toolWork, savedSkill);
     return { runId, sessionId: session.id, text, costUsd: cost, error: errorMessage };
+  }
+
+  // ---- slash commands --------------------------------------------------------
+
+  /**
+   * Handle a chat message that is a known slash command. Returns null for anything else, which then goes to
+   * the model, so a path like /etc/hosts or an unknown /word is never swallowed.
+   */
+  async command(text: string, ctx: { botId: string; chatKey: string }): Promise<CommandOutcome | null> {
+    const m = /^\/([A-Za-z][A-Za-z0-9_-]*)(?:\s+([\s\S]*))?$/.exec(text.trim());
+    if (!m) return null;
+    const name = (m[1] ?? '').toLowerCase();
+    const arg = (m[2] ?? '').trim();
+    if (!COMMAND_NAMES.has(name)) {
+      const workflow = this.findCommandWorkflow(name);
+      if (!workflow) return null;
+      const result = await this.runWorkflow(workflow, `command:/${name}`);
+      return { reply: result.error ? `Failed: ${result.error}` : result.text || '(no output)' };
+    }
+    switch (name) {
+      case 'help': return { reply: COMMAND_HELP };
+      case 'bots': return { reply: this.listBots().map(b => `${b.emoji} ${b.name} — /bot ${b.id}${b.id === ctx.botId ? '  (current)' : ''}`).join('\n') };
+      case 'bot': {
+        const wanted = arg.toLowerCase();
+        const target = this.listBots().find(b => b.id === wanted || b.name.toLowerCase() === wanted);
+        if (!target) return { reply: `${arg ? `No bot called "${arg}".` : 'Say which bot.'} Available: ${this.listBots().map(b => b.id).join(', ')}` };
+        return { reply: `${target.emoji} Switched to ${target.name}.`, switchBot: target.id };
+      }
+      case 'new': return { reply: 'Started a new conversation. The previous one is kept in your list.', newConversation: true };
+      case 'skills': {
+        const skills = this.listSkills();
+        return { reply: skills.length ? skills.map(s => `• ${s.name} — ${s.description.slice(0, 110)}`).join('\n') : 'No skills yet. Finish a multi-step task, then use /learn.' };
+      }
+      case 'usage': {
+        const rows = this.usage();
+        const total = rows.reduce((sum, r) => sum + r.cost, 0);
+        return { reply: rows.length ? `${rows.map(r => `${r.botId}: $${r.cost.toFixed(4)} · ${r.requests} requests`).join('\n')}\nTotal this month: $${total.toFixed(4)}` : 'No usage recorded this month.' };
+      }
+      case 'status': return { reply: this.describeCapabilities() };
+      case 'learn': {
+        const result = await this.learnFrom(ctx.botId, ctx.chatKey, { hint: arg || undefined });
+        return { reply: result.message };
+      }
+      default: return null;
+    }
+  }
+
+  // ---- skill learning --------------------------------------------------------
+
+  private track(promise: Promise<unknown>): void {
+    const tracked = promise.catch(() => undefined).finally(() => this.background.delete(tracked));
+    this.background.add(tracked);
+  }
+
+  /** Resolves when background work (skill reviews and the approvals they wait on) has finished. For tests and shutdown. */
+  async idle(): Promise<void> {
+    while (this.background.size) await Promise.allSettled([...this.background]);
+  }
+
+  private maybeLearn(bot: Bot, session: SessionRow, input: ChatInput, toolWork: number, savedSkill: boolean): void {
+    if (!this.config.learning.auto || input.channel === 'workflow' || savedSkill) return;
+    if (toolWork < this.config.learning.minToolCalls) return;
+    if (bot.tools !== '*' && !bot.tools.includes('save_skill')) return;
+    if (Date.now() - (this.lastLearn.get(session.id) ?? 0) < LEARN_COOLDOWN_MS) return;
+    this.lastLearn.set(session.id, Date.now());
+    this.track(this.learnFrom(bot.id, input.chatKey, { channel: input.channel }).catch(error => console.error(`Skill review failed: ${(error as Error).message}`)));
+  }
+
+  /**
+   * Review a conversation and, if it holds a reusable procedure, ask the human to approve saving it as a skill.
+   * The suggestion appears wherever approvals appear (web, phone, Telegram, Discord) and lives for six hours.
+   */
+  async learnFrom(botId: string, chatKey: string, opts: { hint?: string; channel?: string } = {}): Promise<{ proposed?: SkillProposal; message: string }> {
+    const bot = this.bots.get(botId);
+    if (!bot) return { message: `Unknown bot "${botId}".` };
+    const session = this.store.findSession(botId, chatKey);
+    const messages = session ? this.store.loadMessages<Message>(session.id).filter(m => m.role !== 'system') : [];
+    if (!session || !messages.length) return { message: 'There is nothing in this conversation to learn from yet.' };
+    const model = this.registry.getModel(bot.model.provider, bot.model.id);
+    if (!model || !(await this.registry.checkAuth(bot.model.provider))) return { message: `${bot.name}'s model is not available, so I cannot review this conversation.` };
+    this.reloadSkills();
+    let digest = buildDigest(messages, this.skills.map(s => s.name));
+    if (opts.hint) digest += `\n\nThe user asked to save this: ${opts.hint}`;
+    const reply = await this.registry.models.completeSimple(model, { systemPrompt: REFLECT_SYSTEM, messages: [{ role: 'user', content: digest, timestamp: Date.now() }] });
+    this.store.addUsage({ botId: bot.id, sessionId: session.id, provider: reply.provider, model: reply.model, input: reply.usage.input, output: reply.usage.output, cost: reply.usage.cost.total });
+    if (reply.stopReason === 'error' || reply.stopReason === 'aborted') return { message: `Could not review this conversation: ${reply.errorMessage ?? reply.stopReason}` };
+    const parsed = parseProposal(reply.content.filter(c => c.type === 'text').map(c => (c as { text: string }).text).join(''));
+    if ('reason' in parsed) return { message: parsed.reason };
+    const { proposal } = parsed;
+    const exists = this.skills.some(s => s.name === proposal.name);
+    this.track(this.approvals.request({
+      botId: bot.id, botName: bot.name, chatKey, channel: opts.channel ?? 'web', toolName: 'save_skill', category: 'self-modify',
+      summary: `${exists ? 'Update' : 'Learn'} skill "${proposal.name}": ${proposal.description.slice(0, 140)}`, args: proposal,
+    }, undefined, SKILL_PROPOSAL_LIFETIME_MS).then(resolved => {
+      if (resolved.decision !== 'allow') return;
+      writeUserSkill(proposal.name, proposal.description, proposal.body);
+      this.reloadSkills();
+      this.emit('skill_learned', proposal.name);
+    }));
+    return { proposed: proposal, message: `Suggested skill "${proposal.name}": ${proposal.description}\nApprove it under Approvals (web, phone or chat) to save it. It is only saved if you say yes.` };
   }
 
   private toolsFor(bot: Bot, ctx: { botId: string; chatKey: string; channel: string; workdir: string }): SwitchboardTool[] {
@@ -339,6 +499,7 @@ export class Switchboard extends EventEmitter<Events> {
   private services(bot: Bot): ToolServices {
     return {
       skills: () => (bot.skills === '*' ? this.skills : this.skills.filter(s => (bot.skills as string[]).includes(s.name))),
+      skillsChanged: () => { this.reloadSkills(); },
       sendMessage: (channel, chatId, text) => this.sendMessage(channel, chatId, text),
       scheduleWorkflow: async input => {
         if (!this.bots.has(input.bot)) throw new Error(`Unknown bot "${input.bot}".`);
@@ -380,7 +541,10 @@ export class Switchboard extends EventEmitter<Events> {
       bot.systemPrompt.trim(),
       `## Environment\n- You are "${bot.name}" (id ${bot.id}) in Switchboard ${VERSION}.\n- Channel: ${channel}. Working directory: ${workdir}. Platform: ${os.platform()}.\n- Date: ${new Date().toISOString().slice(0, 10)}.\n- Tool calls marked "ask" pause until a human approves them, possibly from a phone. Keep such calls purposeful and explain them in one line before calling.\n\n## Tools (category, approval)\n${toolLines}`,
     ];
-    if (tools.some(t => t.name === 'load_skill')) sections.push(`## Skills\nLoad a skill with load_skill when a task matches its description.\n${skillsManifest(skills)}`);
+    if (tools.some(t => t.name === 'load_skill')) sections.push(`## Skills\nLoad a skill with load_skill when a task matches its description, before you start the task.\n${skillsManifest(skills)}`);
+    if (tools.some(t => t.name === 'save_skill')) {
+      sections.push('## Learning\nWhen you finish a multi-step task the user may want again, or you worked out something specific to this user\'s setup through trial and error, save it: call save_skill with a short kebab-case name, a description saying what it does and when to use it, and numbered steps with the exact commands, paths and pitfalls. Do not save one-off answers or general knowledge. When a loaded skill turns out wrong or incomplete, fix it by calling save_skill with the same name. The user approves new skills, so just do it and say what you saved.');
+    }
     const memory = memoryPromptSection(bot.id, bot.memory && tools.some(t => t.name === 'remember'));
     if (memory) sections.push(memory);
     return sections.join('\n\n');
@@ -400,7 +564,8 @@ export class Switchboard extends EventEmitter<Events> {
       `Skills installed:\n${skillsManifest(this.skills)}`,
       `Workflows:\n${workflows.join('\n') || '- none (Workflows tab or ask a bot to schedule one)'}`,
       `Tool categories and default approval: read auto; write, shell, network, messaging and self-modify ask. Each bot can change this in its policy. Approvals time out after ${this.config.approvalTimeoutSec}s and are then denied.`,
-      'How to use: chat with a bot in the web UI, the phone app, Telegram or Discord. Switch bots in chats with /bot <id>. Start a fresh conversation with /new. Approve tool calls from any surface.',
+      'How to use: chat with a bot in the web UI, the phone app, Telegram or Discord. Slash commands work everywhere: /help lists them (/bot <id> switches bot, /new starts a new conversation, /skills lists skills, /learn suggests a skill from the current conversation). Approve tool calls from any surface, or choose "always allow" for a tool category.',
+      `Skill learning: ${this.config.learning.auto ? `after a run with ${this.config.learning.minToolCalls} or more tool calls, the bot's model reviews the conversation and may suggest a skill; you approve it before it is saved.` : 'automatic suggestions are off; use /learn.'}`,
     ].join('\n\n');
   }
 
@@ -454,6 +619,11 @@ export function rankPairingCandidates(interfaces: NodeJS.Dict<os.NetworkInterfac
   }
   const rank = { lan: 0, vpn: 1, virtual: 2 };
   return out.sort((a, b) => rank[a.kind] - rank[b.kind] || a.adapter.localeCompare(b.adapter));
+}
+
+function titleFrom(text: string): string {
+  const flat = text.replace(/\s+/g, ' ').trim();
+  return flat.length > 60 ? `${flat.slice(0, 57)}…` : flat;
 }
 
 function resultText(result: unknown): string {

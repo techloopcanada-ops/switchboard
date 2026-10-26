@@ -1,6 +1,6 @@
 import { Bot as TelegramBot, InlineKeyboard, type Context } from 'grammy';
 import type { ApprovalRequest, ApprovalResolved } from '../approvals.ts';
-import type { ChannelAdapter, Switchboard } from '../runtime.ts';
+import { COMMAND_HELP, type ChannelAdapter, type Switchboard } from '../runtime.ts';
 
 const MAX_LEN = 4000;
 
@@ -45,7 +45,7 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   private help(): string {
-    return ['Commands:', '/bots — list bots', '/bot <id> — switch bot for this chat', '/new — fresh conversation', '/approvals — pending approvals', '/status — what this Switchboard can do', '', 'Workflows with a command trigger run as /<command>.'].join('\n');
+    return `Commands:\n${COMMAND_HELP}\n/approvals — pending approvals\n\nWorkflows with a command trigger run as /<command>.`;
   }
 
   private allowed(ctx: Context): boolean {
@@ -86,10 +86,8 @@ export class TelegramChannel implements ChannelAdapter {
   }
 
   private async newSession(ctx: Context): Promise<void> {
-    const botId = this.currentBot(ctx);
-    const session = this.sb.store.getOrCreateSession(botId, `telegram:${ctx.chat?.id}`, 'telegram');
-    this.sb.store.resetSession(session.id);
-    await ctx.reply('Fresh conversation started.');
+    this.sb.store.archiveSession(this.currentBot(ctx), `telegram:${ctx.chat?.id}`);
+    await ctx.reply('Fresh conversation started. The previous one is kept and visible in the app.');
   }
 
   private async listApprovals(ctx: Context): Promise<void> {
@@ -117,14 +115,13 @@ export class TelegramChannel implements ChannelAdapter {
     const chatId = String(ctx.chat?.id);
     if (text.startsWith('/')) {
       const command = text.slice(1).split(/\s+/)[0] ?? '';
-      const workflow = this.sb.findCommandWorkflow(command);
-      if (!workflow) {
+      await ctx.api.sendChatAction(chatId, 'typing').catch(() => undefined);
+      const outcome = await this.sb.command(text, { botId: this.currentBot(ctx), chatKey: `telegram:${chatId}` });
+      if (!outcome) {
         await ctx.reply(`Unknown command /${command}. ${this.help()}`);
         return;
       }
-      await ctx.reply(`Running workflow ${workflow.name}…`);
-      const result = await this.sb.runWorkflow(workflow, `telegram:/${command}`);
-      for (const part of chunk(result.error ? `Failed: ${result.error}` : result.text || '(no output)')) await ctx.reply(part);
+      for (const part of chunk(outcome.reply)) await ctx.reply(part);
       return;
     }
     const botId = this.currentBot(ctx);

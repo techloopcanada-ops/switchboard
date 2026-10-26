@@ -11,6 +11,10 @@ export interface SessionRow {
   title: string;
   createdAt: number;
   updatedAt: number;
+  /** Present on listings: number of stored messages. */
+  messageCount?: number;
+  /** Present on listings: the start of the most recent user message. */
+  preview?: string;
 }
 
 export interface UsageSummary {
@@ -54,9 +58,20 @@ export class SessionStore {
     this.db.close();
   }
 
+  /** Read-only lookup: opening a conversation in a UI must not create rows. */
+  findSession(botId: string, chatKey: string): SessionRow | undefined {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE bot_id = ? AND chat_key = ?').get(botId, chatKey) as Record<string, unknown> | undefined;
+    return row ? rowToSession(row) : undefined;
+  }
+
+  getSession(id: string): SessionRow | undefined {
+    const row = this.db.prepare('SELECT * FROM sessions WHERE id = ?').get(id) as Record<string, unknown> | undefined;
+    return row ? rowToSession(row) : undefined;
+  }
+
   getOrCreateSession(botId: string, chatKey: string, channel: string): SessionRow {
-    const existing = this.db.prepare('SELECT * FROM sessions WHERE bot_id = ? AND chat_key = ?').get(botId, chatKey) as Record<string, unknown> | undefined;
-    if (existing) return rowToSession(existing);
+    const existing = this.findSession(botId, chatKey);
+    if (existing) return existing;
     const now = Date.now();
     const id = randomUUID();
     this.db.prepare('INSERT INTO sessions (id, bot_id, chat_key, channel, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
@@ -64,11 +79,28 @@ export class SessionStore {
     return { id, botId, chatKey, channel, title: '', createdAt: now, updatedAt: now };
   }
 
-  listSessions(botId?: string): SessionRow[] {
-    const rows = botId
-      ? this.db.prepare('SELECT * FROM sessions WHERE bot_id = ? ORDER BY updated_at DESC').all(botId)
-      : this.db.prepare('SELECT * FROM sessions ORDER BY updated_at DESC').all();
-    return (rows as Record<string, unknown>[]).map(rowToSession);
+  /**
+   * Conversations that have at least one message, newest first, across all bots unless one is given.
+   * Empty rows (a conversation opened but never used) are hidden.
+   */
+  listSessions(botId?: string, limit = 300): SessionRow[] {
+    const rows = (botId
+      ? this.db.prepare('SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS n FROM sessions s WHERE s.bot_id = ? ORDER BY s.updated_at DESC LIMIT ?').all(botId, limit)
+      : this.db.prepare('SELECT s.*, (SELECT COUNT(*) FROM messages m WHERE m.session_id = s.id) AS n FROM sessions s ORDER BY s.updated_at DESC LIMIT ?').all(limit)
+    ) as Record<string, unknown>[];
+    const lastUser = this.db.prepare("SELECT json FROM messages WHERE session_id = ? AND role = 'user' ORDER BY seq DESC LIMIT 1");
+    return rows.filter(r => Number(r.n) > 0).map(r => {
+      const session = rowToSession(r);
+      session.messageCount = Number(r.n);
+      const last = lastUser.get(session.id) as { json: string } | undefined;
+      if (last) session.preview = previewOf(last.json);
+      return session;
+    });
+  }
+
+  messageCount(sessionId: string): number {
+    const row = this.db.prepare('SELECT COUNT(*) AS n FROM messages WHERE session_id = ?').get(sessionId) as { n: number };
+    return Number(row.n);
   }
 
   loadMessages<T>(sessionId: string): T[] {
@@ -76,7 +108,15 @@ export class SessionStore {
     return rows.map(r => JSON.parse(r.json) as T);
   }
 
-  /** Replace the whole transcript; the agent owns message ordering. */
+  /** Persist one message the moment it completes, so a crash or restart never loses a conversation. */
+  appendMessage(sessionId: string, seq: number, message: { role: string }): void {
+    const now = Date.now();
+    this.db.prepare('INSERT OR REPLACE INTO messages (session_id, seq, role, json, created_at) VALUES (?, ?, ?, ?, ?)')
+      .run(sessionId, seq, message.role, JSON.stringify(message), now);
+    this.db.prepare('UPDATE sessions SET updated_at = ? WHERE id = ?').run(now, sessionId);
+  }
+
+  /** Replace the whole transcript (used by tests and imports). */
   replaceMessages(sessionId: string, messages: { role: string }[], title?: string): void {
     const now = Date.now();
     const insert = this.db.prepare('INSERT INTO messages (session_id, seq, role, json, created_at) VALUES (?, ?, ?, ?, ?)');
@@ -93,14 +133,36 @@ export class SessionStore {
     }
   }
 
+  setTitleIfEmpty(sessionId: string, title: string): void {
+    this.db.prepare("UPDATE sessions SET title = ? WHERE id = ? AND title = ''").run(title.slice(0, 80), sessionId);
+  }
+
+  renameSession(sessionId: string, title: string): boolean {
+    return this.db.prepare('UPDATE sessions SET title = ? WHERE id = ?').run(title.trim().slice(0, 80), sessionId).changes > 0;
+  }
+
+  /** Start fresh in a fixed-key channel (Telegram, Discord) while keeping the old conversation, viewable in the app. */
+  archiveSession(botId: string, chatKey: string): boolean {
+    const session = this.findSession(botId, chatKey);
+    if (!session) return false;
+    this.db.prepare('UPDATE sessions SET chat_key = ? WHERE id = ?').run(`${chatKey}:archived-${Date.now().toString(36)}`, session.id);
+    return true;
+  }
+
   resetSession(sessionId: string): void {
     this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
     this.db.prepare('UPDATE sessions SET updated_at = ?, title = ? WHERE id = ?').run(Date.now(), '', sessionId);
   }
 
-  deleteSession(sessionId: string): void {
+  deleteSession(sessionId: string): boolean {
     this.db.prepare('DELETE FROM messages WHERE session_id = ?').run(sessionId);
-    this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId);
+    return this.db.prepare('DELETE FROM sessions WHERE id = ?').run(sessionId).changes > 0;
+  }
+
+  /** Remove conversations that were opened but never used and are older than the cutoff. */
+  purgeEmptySessions(olderThanMs = 10 * 60_000): number {
+    const cutoff = Date.now() - olderThanMs;
+    return this.db.prepare('DELETE FROM sessions WHERE updated_at < ? AND NOT EXISTS (SELECT 1 FROM messages m WHERE m.session_id = sessions.id)').run(cutoff).changes as number;
   }
 
   addUsage(entry: { botId: string; sessionId?: string; provider: string; model: string; input: number; output: number; cost: number }): void {
@@ -131,6 +193,16 @@ export class SessionStore {
 
   recentApprovals(limit = 50): Record<string, unknown>[] {
     return this.db.prepare('SELECT * FROM approvals_log ORDER BY decided_at DESC LIMIT ?').all(limit) as Record<string, unknown>[];
+  }
+}
+
+function previewOf(json: string): string {
+  try {
+    const m = JSON.parse(json) as { content?: string | { type: string; text?: string }[] };
+    const text = typeof m.content === 'string' ? m.content : (m.content ?? []).map(c => c.text ?? '').join(' ');
+    return text.replace(/\s+/g, ' ').trim().slice(0, 120);
+  } catch {
+    return '';
   }
 }
 
