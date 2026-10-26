@@ -13,7 +13,7 @@ If pairing fails: both devices must reach each other (same Wi-Fi, or Tailscale o
 
 ## Push notifications
 
-Expo issues push tokens only for builds that belong to an EAS project. Steps for the owner, once:
+Expo issues push tokens only for builds that belong to an EAS project. The project exists (`@focust/switchboard`); the remaining Firebase steps are in `docs/PUSH-SETUP.md`. Summary:
 
 1. `cd switchboard/apps/mobile` then `eas init` (creates the project under the Expo account you are logged in to, ideally a project-only account with a project email, and writes `extra.eas.projectId` into `app.json`; set `owner` in `app.json` to that account's handle).
 2. Android pushes need Firebase Cloud Messaging credentials on the EAS project: create a Firebase project, download the service-account JSON, run `eas credentials` → Android → Push notifications → upload. Without this, Expo returns tokens but Android delivery fails.

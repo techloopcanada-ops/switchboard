@@ -4,3 +4,7 @@ android/
 ios/
 *.apk
 *.aab
+# Firebase: the client config is per-project, the service account key is a secret. Neither belongs in git.
+google-services.json
+*firebase-adminsdk*.json
+*service-account*.json
