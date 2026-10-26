@@ -1,0 +1,145 @@
+{
+  "avd": "sl35",
+  "api": 35,
+  "resolution": "1080x2400",
+  "appId": "ca.techloop.switchboard",
+  "versionCode": 2,
+  "testedApk": {
+    "abi": "x86_64",
+    "bytes": 31437674,
+    "sha256": "24ca171b6946ce45643d26b95207b0a94d02ce8ca56e4d1251370f2d18ac115a"
+  },
+  "checks": [
+    {
+      "name": "fixed-chat-keyboard-initial",
+      "imeTop": 1517,
+      "inputBounds": "[26,1370][857,1491]",
+      "sendBounds": "[878,1371][1054,1491]",
+      "text": "hello",
+      "passed": true
+    },
+    {
+      "name": "pair-url-keyboard",
+      "bounds": "[81,1379][999,1491]",
+      "imeTop": 1517,
+      "passed": true
+    },
+    {
+      "name": "pair-token-keyboard",
+      "bounds": "[81,1406][999,1517]",
+      "imeTop": 1517,
+      "passed": true
+    },
+    {
+      "name": "chat-keyboard-hello",
+      "imeTop": 1517,
+      "inputBounds": "[26,1370][857,1491]",
+      "sendBounds": "[878,1371][1054,1492]",
+      "text": "hello",
+      "passed": true
+    },
+    {
+      "name": "hello-streamed-reply",
+      "passed": true
+    },
+    {
+      "name": "chat-keyboard-multiline",
+      "imeTop": 1517,
+      "inputBounds": "[26,1123][857,1491]",
+      "sendBounds": "[878,1371][1054,1492]",
+      "text": "Keyboard line 1 with clear typed text&#10;Keyboard line 2 with clear typed text&#10;Keyboard line 3 with clear typed text&#10;Keyboard line 4 with clear typed text&#10;Keyboard line 5 with clear typed text&#10;Keyboard line 6 with clear typed text&#10;Keyboard line 7 with clear typed text&#10;LAST LINE VISIBLE",
+      "passed": true
+    },
+    {
+      "name": "tabs-return-after-keyboard",
+      "passed": true
+    },
+    {
+      "name": "force-stop-restores-conversation-and-multiline-draft",
+      "botId": "assistant",
+      "chatKey": "mobile:mvp2k4er8er445",
+      "passed": true
+    },
+    {
+      "name": "new-keeps-old-conversation",
+      "passed": true
+    },
+    {
+      "name": "slash-bot-local-switch",
+      "modelCallsBefore": 1,
+      "modelCallsAfter": 1,
+      "passed": true
+    },
+    {
+      "name": "inline-write-allow-and-markdown-code",
+      "passed": true,
+      "automationNote": "Countdown prevents idle UI dump; Allow located in fresh screenshot."
+    },
+    {
+      "name": "history-all-bots-grouped",
+      "passed": true
+    },
+    {
+      "name": "rename-persists-on-server",
+      "passed": true
+    },
+    {
+      "name": "history-search",
+      "passed": true
+    },
+    {
+      "name": "delete-removes-server-conversation",
+      "passed": true
+    },
+    {
+      "name": "delete-current-opens-empty-chat",
+      "passed": true
+    },
+    {
+      "name": "long-reply-keyboard",
+      "imeTop": 1517,
+      "inputBounds": "[26,1312][857,1491]",
+      "sendBounds": "[878,1371][1054,1492]",
+      "text": "Final draft stays visible&#10;Above the keyboard",
+      "passed": true
+    },
+    {
+      "name": "latest-long-reply-remains-visible-above-composer",
+      "passed": true
+    },
+    {
+      "name": "final-keyboard-and-latest",
+      "imeTop": 1517,
+      "inputBounds": "[26,1312][857,1491]",
+      "sendBounds": "[878,1371][1054,1491]",
+      "text": "Final draft stays visible&#10;Above the keyboard",
+      "passed": true
+    },
+    {
+      "name": "scroll-up-pauses-follow-and-latest-restores-bottom",
+      "passed": true
+    },
+    {
+      "name": "latest-above-eight-line-draft",
+      "imeTop": 1517,
+      "inputBounds": "[26,1123][857,1491]",
+      "sendBounds": "[878,1371][1054,1492]",
+      "text": "Draft line 1&#10;Draft line 2&#10;Draft line 3&#10;Draft line 4&#10;Draft line 5&#10;Draft line 6&#10;Draft line 7&#10;VISIBLE FINAL LINE",
+      "passed": true
+    },
+    {
+      "name": "latest-control-does-not-cover-tall-draft-while-reading",
+      "latestBounds": "[861,992][1043,1073]",
+      "messageBounds": "[26,1123][857,1491]",
+      "passed": true
+    },
+    {
+      "name": "latest-with-tall-draft-returns-to-bottom",
+      "passed": true
+    }
+  ],
+  "limitations": [
+    "Android 36 and physical phone not exercised",
+    "Real provider and push delivery not exercised"
+  ]
+}

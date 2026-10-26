@@ -20,12 +20,14 @@ if ($Fresh) {
   New-Item -ItemType Directory -Force $BuildDir | Out-Null
   # Full paths in /XD so only these directories are skipped, not every folder named "android" inside node_modules.
   robocopy $app $BuildDir /E /XD "$app\node_modules" "$app\android" "$app\ios" "$app\.expo" /NFL /NDL /NJH /NJS | Out-Null
+  if ($LASTEXITCODE -ge 8) { Write-Host "Source copy failed; refusing to build stale files."; exit 1 }
   Write-Host "Copied app to $BuildDir"
 }
 if ($Install) {
   # Refresh sources (app.json, plugins, src) from this app without touching node_modules or the native tree.
   $app = (Resolve-Path "$PSScriptRoot\..").Path
   robocopy $app $BuildDir /E /XD "$app\node_modules" "$app\android" "$app\ios" "$app\.expo" /NFL /NDL /NJH /NJS | Out-Null
+  if ($LASTEXITCODE -ge 8) { Write-Host "Source copy failed; refusing to build stale files."; exit 1 }
 }
 if ($Fresh -or $Install) {
   Set-Location $BuildDir

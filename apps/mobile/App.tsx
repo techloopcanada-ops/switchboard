@@ -1,9 +1,10 @@
 import * as Notifications from 'expo-notifications';
 import { StatusBar } from 'expo-status-bar';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AppState, Keyboard, Pressable, Text, View } from 'react-native';
+import { Alert, AppState, Keyboard, KeyboardAvoidingView, Pressable, Text, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
-import { api, clearConnection, loadConnection, saveConnection, Socket, type Approval, type ApprovalResolved, type Bot, type Connection, type ServerMessage } from './src/connection';
+import { api, clearConnection, loadConnection, saveConnection, Socket, type Approval, type Bot, type Connection, type ServerMessage } from './src/connection';
+import { createApprovalState } from './src/approval-state';
 import { registerForPush, type PushStatus } from './src/push';
 import { ApprovalsScreen } from './src/screens/ApprovalsScreen';
 import { ChatScreen } from './src/screens/ChatScreen';
@@ -38,6 +39,7 @@ function Root() {
   const [version, setVersion] = useState('');
   const [socket, setSocket] = useState<Socket | null>(null);
   const listeners = useRef(new Set<(message: ServerMessage) => void>());
+  const approvalState = useRef<{ connection: Connection; state: ReturnType<typeof createApprovalState> } | null>(null);
   const keyboardOpen = useKeyboardOpen();
 
   useEffect(() => { loadConnection().then(setConnection); }, []);
@@ -45,24 +47,31 @@ function Root() {
   // One socket per connection; screens subscribe to server messages through `listeners`.
   useEffect(() => {
     if (!connection) return;
+    const state = createApprovalState(setApprovals);
+    approvalState.current = { connection, state };
+    state.replace([]);
+    setOnline(false);
     const next = new Socket(connection);
     setSocket(next);
     const onMessage = (message: ServerMessage) => {
+      if (state.closed) return;
       switch (message.type) {
-        case 'hello': setBots(message.bots); setApprovals(message.approvals); setVersion(message.version); break;
+        case 'hello': setBots(message.bots); state.replace(message.approvals); setVersion(message.version); break;
         case 'bots': setBots(message.bots); break;
-        case 'approval': setApprovals(list => [...list.filter(a => a.id !== message.request.id), message.request]); break;
-        case 'approval_resolved': setApprovals(list => list.filter(a => a.id !== (message.resolved as ApprovalResolved).id)); break;
+        case 'approval': state.add(message.request); break;
+        case 'approval_resolved': state.remove(message.resolved.id); break;
         default: break;
       }
       for (const listener of listeners.current) listener(message);
     };
     next.listeners.add(onMessage);
-    next.statusListeners.add(setOnline);
+    next.statusListeners.add(value => { if (!state.closed) setOnline(value); });
     next.connect();
-    registerForPush(connection, 'Phone').then(setPush);
-    const sub = AppState.addEventListener('change', state => { if (state === 'active') api<Approval[]>(connection, '/api/approvals').then(setApprovals).catch(() => undefined); });
-    return () => { sub.remove(); next.close(); setSocket(null); };
+    registerForPush(connection, 'Phone').then(value => { if (!state.closed) setPush(value); });
+    const sub = AppState.addEventListener('change', appState => {
+      if (appState === 'active') state.refresh(() => api<Approval[]>(connection, '/api/approvals')).catch(() => undefined);
+    });
+    return () => { state.close(); approvalState.current = null; sub.remove(); next.close(); setSocket(null); };
   }, [connection]);
 
   useEffect(() => {
@@ -70,10 +79,15 @@ function Root() {
     return () => sub.remove();
   }, []);
 
-  const decide = useCallback((id: string, decision: 'allow' | 'deny', remember = false) => {
-    if (!connection) return;
-    setApprovals(list => list.filter(a => a.id !== id));
-    api(connection, `/api/approvals/${id}`, { method: 'POST', body: JSON.stringify({ decision, by: 'phone', remember }) }).catch(() => undefined);
+  const decide = useCallback(async (id: string, decision: 'allow' | 'deny', remember = false) => {
+    const current = approvalState.current;
+    if (!connection || current?.connection !== connection) return;
+    try {
+      const ok = await current.state.decide(id, () => api<{ ok: boolean }>(connection, `/api/approvals/${id}`, { method: 'POST', body: JSON.stringify({ decision, by: 'phone', remember }) }));
+      if (ok === false) Alert.alert('Request no longer waiting', 'It was already resolved or expired.');
+    } catch (error) {
+      if (!current.state.closed) Alert.alert('Decision not confirmed', `${error instanceof Error ? error.message : String(error)}\n\nIf the request is still waiting, you can retry.`);
+    }
   }, [connection]);
 
   const pair = useCallback(async (next: Connection) => {
@@ -105,6 +119,8 @@ function Root() {
   return (
     <SafeAreaView style={s.safe} edges={['top', 'left', 'right', 'bottom']}>
       <StatusBar style="light" />
+      {/* Keep keyboard coordinates relative to the screen, including both headers. */}
+      <KeyboardAvoidingView style={s.flex} behavior="padding">
       <View style={[s.between, { paddingHorizontal: 16, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: C.line }]}>
         <Text style={s.h2}>Switchboard</Text>
         <View style={s.row}>
@@ -128,6 +144,7 @@ function Root() {
           ))}
         </View>
       )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }

@@ -1,10 +1,14 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, KeyboardAvoidingView, Modal, Pressable, SectionList, Text, TextInput, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { api, type Bot, type Connection, type SessionRow } from '../connection';
 import { groupSessions, relativeTime, searchSessions } from '../history';
 import { C, s } from '../theme';
 import { ActionSheet } from './ActionSheet';
+import { sameChat } from '../chat-state';
+import { listDrafts, saveDraft, type SavedDraft } from '../storage';
+
+interface HistoryRow extends SessionRow { local?: boolean }
 
 /** Every conversation across all bots. Tap to open; long-press for rename and delete. */
 export function HistorySheet({ visible, connection, bots, currentChatKey, onOpen, onClose, onDeleted }: {
@@ -17,23 +21,42 @@ export function HistorySheet({ visible, connection, bots, currentChatKey, onOpen
   onDeleted: (session: SessionRow) => void;
 }) {
   const [sessions, setSessions] = useState<SessionRow[]>([]);
+  const [drafts, setDrafts] = useState<SavedDraft[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const [query, setQuery] = useState('');
-  const [menuFor, setMenuFor] = useState<SessionRow | null>(null);
+  const [menuFor, setMenuFor] = useState<HistoryRow | null>(null);
   const [renaming, setRenaming] = useState<SessionRow | null>(null);
   const [title, setTitle] = useState('');
+  const loadVersion = useRef(0);
 
   const load = useCallback(async () => {
+    const version = ++loadVersion.current;
     setLoading(true); setError('');
-    try { setSessions(await api<SessionRow[]>(connection, '/api/sessions/list')); }
-    catch (e) { setError((e as Error).message); }
-    finally { setLoading(false); }
+    const saved = await listDrafts();
+    if (version !== loadVersion.current) return;
+    setDrafts(saved);
+    try {
+      const next = await api<SessionRow[]>(connection, '/api/sessions/list');
+      if (version === loadVersion.current) setSessions(next);
+    }
+    catch (e) { if (version === loadVersion.current) setError((e as Error).message); }
+    finally { if (version === loadVersion.current) setLoading(false); }
   }, [connection]);
 
-  useEffect(() => { if (visible) { setQuery(''); void load(); } }, [visible, load]);
+  useEffect(() => {
+    if (visible) { setQuery(''); void load(); }
+    return () => { ++loadVersion.current; };
+  }, [visible, load]);
 
-  const sections = useMemo(() => groupSessions(searchSessions(sessions, query)), [sessions, query]);
+  const sections = useMemo(() => {
+    const local: HistoryRow[] = drafts.filter(draft => bots.some(bot => bot.id === draft.botId) && !sessions.some(session => sameChat(session, draft))).map(draft => ({
+      ...draft, id: `draft:${draft.botId}:${draft.chatKey}`, local: true, title: draft.text.trim().slice(0, 80) || 'Unsent draft', preview: draft.text,
+      channel: 'phone draft', createdAt: draft.updatedAt, messageCount: 0,
+    }));
+    const matching = searchSessions(local, query) as HistoryRow[];
+    return [...(matching.length ? [{ title: 'Drafts on this phone', data: matching }] : []), ...groupSessions(searchSessions(sessions, query))];
+  }, [sessions, drafts, bots, query]);
   const botOf = (id: string) => bots.find(b => b.id === id);
 
   async function saveRename() {
@@ -42,11 +65,14 @@ export function HistorySheet({ visible, connection, bots, currentChatKey, onOpen
     catch (e) { Alert.alert('Could not rename', (e as Error).message); }
   }
 
-  function confirmDelete(session: SessionRow) {
-    Alert.alert('Delete this conversation?', `"${session.title || 'Untitled'}" and its messages will be removed from your computer.`, [
+  function confirmDelete(session: HistoryRow) {
+    Alert.alert(session.local ? 'Delete this draft?' : 'Delete this conversation?', session.local ? 'This unsent draft will be removed from your phone.' : `"${session.title || 'Untitled'}" and its messages will be removed from your computer.`, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        try { await api(connection, `/api/sessions/${session.id}`, { method: 'DELETE' }); onDeleted(session); await load(); }
+        try {
+          if (!session.local) await api(connection, `/api/sessions/${session.id}`, { method: 'DELETE' });
+          await saveDraft(session, ''); onDeleted(session); await load();
+        }
         catch (e) { Alert.alert('Could not delete', (e as Error).message); }
       } },
     ]);
@@ -97,7 +123,7 @@ export function HistorySheet({ visible, connection, bots, currentChatKey, onOpen
           title={menuFor?.title || 'Conversation'}
           onClose={() => setMenuFor(null)}
           actions={menuFor ? [
-            { label: 'Rename', onPress: () => { setRenaming(menuFor); setTitle(menuFor.title); } },
+              ...(!menuFor.local ? [{ label: 'Rename', onPress: () => { setRenaming(menuFor); setTitle(menuFor.title); } }] : []),
             { label: 'Delete', danger: true, onPress: () => confirmDelete(menuFor) },
           ] : []}
         />
