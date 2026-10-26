@@ -1,0 +1,23 @@
+{
+  "name": "switchboard-monorepo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Switchboard: your bots, any model, every channel, approved from your pocket.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "apps/web",
+    "apps/desktop"
+  ],
+  "engines": {
+    "node": ">=22.19.0"
+  },
+  "scripts": {
+    "build": "node node_modules/typescript/bin/tsc -p packages/core/tsconfig.json && npm run build -w apps/web && npm run build -w apps/desktop",
+    "test": "npm run test -w packages/core && npm run test -w apps/web && npm run test -w apps/desktop",
+    "typecheck": "node node_modules/typescript/bin/tsc -p packages/core/tsconfig.json --noEmit && npm run typecheck -w apps/web && npm run typecheck -w apps/desktop",
+    "start": "node packages/core/dist/cli.js start",
+    "setup": "node packages/core/dist/cli.js setup",
+    "desktop": "npm run start -w apps/desktop"
+  }
+}

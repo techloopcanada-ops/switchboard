@@ -1,0 +1,18 @@
+import { useState } from 'react';
+import { api } from '../api';
+import { LoadState, useResource } from '../resource';
+import type { Skill } from '../types';
+
+export default function Skills({ notify }: { notify: (message: string) => void }) {
+  const resource = useResource<Skill[]>('/api/skills');
+  const [editor, setEditor] = useState<{ name: string; description: string; body: string; source: string; existing: boolean }>();
+  const [busy, setBusy] = useState(false);
+  async function view(name: string) { setBusy(true); try { const skill = await api<Skill & { body: string }>(`/api/skills/${name}`); setEditor({ ...skill, existing: true }); } catch (error) { notify(String(error)); } finally { setBusy(false); } }
+  async function save() { if (!editor) return; setBusy(true); try { if (!editor.existing) { const latest = await api<Skill[]>('/api/skills'); if (latest.some(skill => skill.name === editor.name)) throw new Error('That skill name already exists. Open it to edit, or choose a new name.'); } await api(`/api/skills/${editor.name}`, 'PUT', { description: editor.description, body: editor.body }); setEditor({ ...editor, existing: true, source: 'user' }); await resource.refresh(); notify('Skill saved and reloaded. Start a new chat to use the updated skill.'); } catch (error) { notify(String(error)); } finally { setBusy(false); } }
+  async function reload() { setBusy(true); try { await api('/api/skills/reload', 'POST'); await resource.refresh(); notify('Skills reloaded.'); } catch (error) { notify(String(error)); } finally { setBusy(false); } }
+  return <div className="stack"><div className="toolbar"><p className="muted">Give your bots reusable instructions.</p><div className="row"><button disabled={busy} onClick={() => void reload()}>Reload</button><button className="primary" disabled={busy} onClick={() => { if (!editor || confirm('Start a new skill? Unsaved edits will be lost.')) setEditor({ name: '', description: '', body: '', source: 'user', existing: false }); }}>＋ New skill</button></div></div>
+    <LoadState loading={resource.loading} error={resource.error} retry={resource.refresh} /><div className="grid">{resource.data?.map(skill => <article className="card stack" key={skill.name}><div className="toolbar"><h2>{skill.name}</h2><span className="badge">{skill.source}</span></div><p className="muted">{skill.description}</p><button disabled={busy} onClick={() => { if (!editor || confirm('Open this skill? Unsaved edits will be lost.')) void view(skill.name); }}>{skill.source === 'user' ? 'View / edit' : 'View skill'}</button></article>)}</div>
+    {!resource.loading && !resource.data?.length && <p className="card muted">No skills found. Add your first reusable instruction above.</p>}
+    {editor && <form className="card stack" onSubmit={event => { event.preventDefault(); void save(); }}><h2>{editor.existing ? editor.name : 'New skill'}</h2><label>Name<input required maxLength={64} pattern="[a-z0-9]+(-[a-z0-9]+)*" value={editor.name} disabled={editor.existing} onChange={event => setEditor({ ...editor, name: event.target.value })} /></label><label>Description<textarea maxLength={1024} required value={editor.description} readOnly={editor.source === 'bundled'} onChange={event => setEditor({ ...editor, description: event.target.value })} /></label><label>Instructions (Markdown)<textarea rows={16} className="code-editor" value={editor.body} readOnly={editor.source === 'bundled'} onChange={event => setEditor({ ...editor, body: event.target.value })} /></label>{editor.source === 'bundled' ? <p className="muted">Bundled skills are read-only. Create a new user skill with a different name to customize these instructions.</p> : <button className="primary" disabled={busy}>Save skill</button>}</form>}
+  </div>;
+}

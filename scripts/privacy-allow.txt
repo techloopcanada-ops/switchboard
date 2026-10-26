@@ -1,0 +1,2 @@
+# Strings that are the intended public identity and must not be reported as leaks. One per line.
+techloopcanada@gmail.com

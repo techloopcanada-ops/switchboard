@@ -1,0 +1,27 @@
+appId: ca.techloop.switchboard
+productName: Switchboard
+copyright: Copyright © 2026 TechLoop
+directories:
+  output: release
+files:
+  - dist/**/*
+  - assets/**/*
+  - package.json
+extraResources:
+  - from: ../web/dist
+    to: web
+  - from: ../../packages/core/skills
+    to: skills
+win:
+  icon: assets/icon.png
+  target:
+    - target: nsis
+      arch:
+        - x64
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
+artifactName: Switchboard-Setup-${version}-${arch}.${ext}

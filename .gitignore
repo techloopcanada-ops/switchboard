@@ -1,0 +1,11 @@
+node_modules/
+dist/
+*.log
+.env
+apps/desktop/release/
+apps/web/dist/
+apps/mobile/.expo/
+apps/mobile/android/
+apps/mobile/ios/
+release/*.apk
+release/*.aab

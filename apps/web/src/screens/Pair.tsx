@@ -1,0 +1,20 @@
+import { useEffect, useState } from 'react';
+import QRCode from 'qrcode';
+import { api } from '../api';
+import { LoadState, useResource } from '../resource';
+import type { PushDevice } from '../types';
+
+function PairCode({ url, token, notify }: { url: string; token: string; notify: (message: string) => void }) {
+  const value = `switchboard://pair?url=${encodeURIComponent(url)}&token=${encodeURIComponent(token)}`;
+  const [image, setImage] = useState('');
+  const [error, setError] = useState('');
+  useEffect(() => { let active = true; QRCode.toDataURL(value, { width: 260, margin: 2 }).then(result => { if (active) setImage(result); }).catch(error => { if (active) setError(String(error)); }); return () => { active = false; }; }, [value]);
+  return <article className="card stack"><h2 className="break-word">{url}</h2>{image && <img className="qr" src={image} alt={`Pair Switchboard with ${url}`} width={260} height={260} />}{error && <p className="error">{error}</p>}<label>Pairing link<textarea readOnly rows={3} value={value} onFocus={event => event.target.select()} /></label><button onClick={() => { if (!navigator.clipboard) { notify('Clipboard is unavailable on this connection. Select and copy the pairing link above.'); return; } void navigator.clipboard.writeText(value).then(() => notify('Pairing link copied. Keep it private.')).catch(() => notify('Select and copy the pairing link above.')); }}>Copy pairing link</button></article>;
+}
+export default function Pair({ notify }: { notify: (message: string) => void }) {
+  const pair = useResource<{ urls: string[]; token: string }>('/api/pair');
+  const devices = useResource<PushDevice[]>('/api/devices');
+  const [busy, setBusy] = useState('');
+  async function remove(device: PushDevice) { if (!confirm(`Remove push notifications for “${device.name}”? The shared API token remains valid on that phone.`)) return; setBusy(device.id); try { await api(`/api/devices/${device.id}`, 'DELETE'); await devices.refresh(); notify('Device removed from push notifications. Rotate the server token to revoke its API access.'); } catch (error) { notify(String(error)); } finally { setBusy(''); } }
+  return <div className="stack"><section className="card"><h2>Approve from your pocket</h2><ol><li>Put your phone and this computer on the same network, or connect both with Tailscale.</li><li>In Settings → General, set server host to 0.0.0.0, save, then restart Switchboard.</li><li>In the Switchboard phone app, scan a QR code or paste its pairing link. Choose an address reachable from your phone.</li></ol><p className="muted">The QR code contains your server token. Anyone with this link can control your bots. Keep it private. Use Tailscale for access outside a trusted LAN; do not forward this port to the internet.</p></section><LoadState loading={pair.loading} error={pair.error} retry={pair.refresh} /><div className="grid">{pair.data?.urls.map(url => <PairCode key={url} url={url} token={pair.data!.token} notify={notify} />)}</div>{pair.data && !pair.data.urls.length && <p className="card muted">No network addresses found. Connect to a network and refresh.</p>}<section className="card stack"><div className="toolbar"><h2>Paired devices</h2><button onClick={() => { void pair.refresh(); void devices.refresh(); }}>Refresh</button></div><LoadState loading={devices.loading} error={devices.error} retry={devices.refresh} />{devices.data?.map(device => <div className="toolbar" key={device.id}><div><strong>{device.name}</strong><small className="muted">Added {new Date(device.addedAt).toLocaleString()}</small></div><button className="danger" disabled={!!busy} onClick={() => void remove(device)}>Remove</button></div>)}{!devices.loading && !devices.data?.length && <p className="muted">No push-enabled devices registered yet. Pair in the phone app and allow notifications.</p>}<small className="muted">Removing a device stops its push notifications. All clients share a token; removal alone does not revoke access.</small></section></div>;
+}

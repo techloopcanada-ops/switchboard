@@ -1,0 +1,5 @@
+# One term per line. Lines starting with # are ignored. Matching is case-insensitive, whole-word.
+# Add personal identifiers here: legal name, personal email, home address, employer, other usernames, old project names.
+# The TechLoop business identity (brand, support email, mailbox address, Expo handle) is the intended public identity
+# and is listed in privacy-allow.txt instead. Keep this file out of a public repository if it names a person
+# (add it to .git/info/exclude).
