@@ -75,28 +75,27 @@ For a news briefing, you can later enable `web_fetch` and ask for named source U
 
 ## 3. Teach a bot a skill
 
-Goal: save a reusable checklist, then load it in a fresh conversation. A skill is a local Markdown instruction file, not trained model weights.
+Goal: turn a task that worked into reusable instructions. A skill is a local Markdown file, not trained model weights. See [Skills, learning and chat commands](SKILLS-AND-LEARNING.md) for the full behavior.
 
-1. In **Bots → Coder**, enable `save_skill` and `load_skill`. Set skills to **all** and `self-modify` to **ask**. Save.
-2. Start a new Coder chat and send:
+1. Use the practice directory from tutorial 1. In **Bots → Coder**, enable `list_dir`, `write_file`, `shell`, `read_file`, `save_skill`, and `load_skill`, or keep **all tools**. Set skills to **all** and `write`, `shell`, and `self-modify` to **ask**. Save. In **Settings → General → Skill learning**, leave automatic suggestions enabled.
+2. Start a Coder chat and complete a small task with several real tool calls. For example:
 
    ```text
-   Use save_skill to save this reusable skill.
-   name: review-small-change
-   description: Review a small code diff for correctness and useful checks.
-   body:
-   1. Read the changed code and the immediate callers.
-   2. Identify one concrete failure case, or say none was found.
-   3. Suggest the smallest useful verification command.
-   4. Report findings before style suggestions. Do not edit files.
+   List the practice directory. If greeting-practice.mjs already exists, stop.
+   Write greeting-practice.mjs containing exactly:
+   console.log('Practice passed');
+   Then run node greeting-practice.mjs and read the file back with read_file.
+   Check that the output and saved content match. Do not install anything
+   or change other files. Explain the checks that worked.
    ```
 
-3. Inspect the `save_skill` approval, including its name, description, and body. Approve if they match. Names use lowercase letters, digits, and single hyphens. Saving an existing name overwrites that user skill, so choose a new name if you want to preserve it.
-4. Open **Skills** and choose **Reload**. This step matters: the current `save_skill` tool writes the file but does not automatically refresh the daemon's skill registry. Open `review-small-change` and inspect its instructions. User skills live under `~/.switchboard/skills/<name>/SKILL.md` by default.
-5. Start a **new** Coder chat. Send: `Load review-small-change with load_skill, then tell me the four steps without changing any files.` Check that the transcript contains a `load_skill` call and the reply follows the saved body.
-6. If a bot uses a selected skills list instead of **all**, add the new skill in its bot editor. Use the **Skills** editor to revise a user skill, then start a new chat to pick up the current metadata. A user skill with a bundled skill's name overrides the bundled one.
+3. Review and approve the file write and shell command. Check the tool results yourself. After a run with at least four work-tool calls by default, Switchboard reviews the conversation for a useful procedure. If it finds one, a **Suggested skill** card appears inline and in **Approvals**. The bot can also propose a skill directly with `save_skill`; review that card the same way.
+4. If no suggestion appears, stay in that conversation and send `/learn the steps we used to create, run and verify a small JavaScript file`. This requests a review even when automatic suggestions are off. It can report that there is nothing useful to save; a suggestion is not guaranteed. Type `/help` to see the other commands.
+5. Open the card's details (**Read the steps** on the phone). Check the name, description, commands, and verification steps against what actually worked. Choose **Save skill** to keep it or **Not now** to discard it. Do not save private tokens or instructions you have not reviewed. If a proposal uses an existing name, it replaces that user skill.
+6. Open **Skills** on the computer and inspect the saved entry. It is available to permitted bots immediately; no daemon restart or manual registry reload is required. User skills live under `~/.switchboard/skills/<name>/SKILL.md` by default.
+7. In the same chat or a new one, ask: `Load <the saved skill name> with load_skill, then explain its steps without changing files.` Check the actual `load_skill` result. If a bot uses a selected skills list instead of **all**, add the skill in its bot editor first. Revise its instructions in **Skills** as needed; a user skill with a bundled skill's name overrides the bundled one.
 
-Do not put API keys or other secrets in skills. Review instructions imported from elsewhere before giving a bot access to them.
+Learning reviews use the bot's configured model and can incur provider usage. Save procedures grounded in successful work, then check their instructions before reusing them on another project.
 
 ## 4. Cheap models for cheap tasks
 

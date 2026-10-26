@@ -2,7 +2,7 @@
 
 Switchboard runs bots on your computer. A model generates replies and requests tools. You decide which tool categories can run automatically, need approval, or are blocked.
 
-This guide uses the source checkout. `@switchboard/core` is not published to npm yet. You need a repository URL from the project owner; this checkout has no public clone URL configured.
+This guide uses the [Switchboard source checkout](https://github.com/techloopcanada-ops/switchboard). `@switchboard/core` is not published to npm yet.
 
 ## 1. Install and build
 
@@ -13,20 +13,18 @@ This guide uses the source checkout. `@switchboard/core` is not published to npm
    git --version
    ```
 
-2. Clone the repository that contains the `switchboard` directory. In PowerShell:
+2. Clone the repository. In PowerShell:
 
    ```powershell
-   $switchboardRepo = Read-Host 'Repository clone URL from the project owner'
-   git clone "$switchboardRepo" switchboard-checkout
-   Set-Location switchboard-checkout/switchboard
+   git clone https://github.com/techloopcanada-ops/switchboard.git switchboard
+   Set-Location switchboard
    ```
 
    In bash:
 
    ```bash
-   read -r -p 'Repository clone URL from the project owner: ' switchboard_repo
-   git clone "$switchboard_repo" switchboard-checkout
-   cd switchboard-checkout/switchboard
+   git clone https://github.com/techloopcanada-ops/switchboard.git switchboard
+   cd switchboard
    ```
 
    If you already have this workspace, open a terminal in its `switchboard` directory instead. All remaining commands assume that directory unless stated otherwise.
@@ -63,6 +61,8 @@ This guide uses the source checkout. `@switchboard/core` is not published to npm
 6. In **Settings → Providers**, check the configured provider, refresh its models, and choose a default model. Check **Bots → Guide** uses that provider and model. In **Chat**, select **Guide**, start a new chat, and send: `Hello. What is configured, and what should I try first?`
 
    When the default changes, bots using the previous default follow the new model. Bots assigned to a different model keep that choice. Setting the first default updates all built-in bots. The **Get started** checkbox can also apply the selected model to built-in bots that had a different model. Running the CLI `setup` again updates all built-in bots too; use **Bots** for individual choices.
+
+Slash commands work in every chat surface: desktop/web, the phone app, Telegram, and Discord. Start with `/help`; `/learn` reviews the current conversation for a reusable skill.
 
 ### Use the desktop app
 

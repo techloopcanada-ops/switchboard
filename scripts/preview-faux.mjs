@@ -17,9 +17,7 @@ const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const port = Number(process.env.PREVIEW_PORT ?? 7795);
 const host = process.env.PREVIEW_HOST ?? '0.0.0.0';
 const token = 'ui-test-token-ui-test-token-1234';
-const home = path.join(os.tmpdir(), `sb-preview-${port}`);
-fs.rmSync(home, { recursive: true, force: true });
-fs.mkdirSync(home, { recursive: true });
+const home = fs.mkdtempSync(path.join(os.tmpdir(), `sb-preview-${port}-`));
 process.env.SWITCHBOARD_HOME = home;
 fs.writeFileSync(path.join(home, 'config.json'), JSON.stringify({
   version: 1, server: { host, port }, token, providers: {},
@@ -36,9 +34,12 @@ const lastUser = ctx => {
   return typeof m?.content === 'string' ? m.content : (m?.content ?? []).map(c => c.text ?? '').join('');
 };
 const step = ctx => {
+  console.log(`[preview] model call ${faux.state.callCount}`);
   const last = ctx.messages.at(-1);
   const said = lastUser(ctx);
   if (last?.role === 'toolResult') return pi.fauxAssistantMessage('Done. I wrote the file and checked it.\n\n```js\nconsole.log("hello from the test");\n```\n\n- first point\n- second point with `inline code`');
+  if (/shell check/i.test(said)) return pi.fauxAssistantMessage([pi.fauxToolCall('shell', { command: 'echo preview' })]);
+  if (/memory check/i.test(said)) return pi.fauxAssistantMessage([pi.fauxToolCall('remember', { note: 'Disposable preview memory.', scope: 'bot' })]);
   if (/write/i.test(said)) return pi.fauxAssistantMessage([pi.fauxToolCall('write_file', { path: 'note.txt', content: 'hello from the test' })]);
   if (/long/i.test(said)) return pi.fauxAssistantMessage(Array.from({ length: 14 }, (_, i) => `Paragraph ${i + 1}: filler text so the conversation scrolls past one screen.`).join('\n\n'));
   return pi.fauxAssistantMessage(`You said: ${said}\n\nThis is a **scripted** reply from the test model.`);
