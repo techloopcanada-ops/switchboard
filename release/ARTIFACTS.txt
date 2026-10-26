@@ -8,3 +8,10 @@ V2 Signer: certificate DN: CN=Android Debug, OU=Android, O=Unknown, L=Unknown, S
 package: name='ca.techloop.switchboard' versionCode='1' versionName='0.1.0' platformBuildVersionName='17' platformBuildVersionCode='37' compileSdkVersion='37' compileSdkVersionCodename='17'
 native-code: 'arm64-v8a'
 Firebase components in manifest: True
+
+WINDOWS INSTALLER (desktop)
+File: apps/desktop/release/Switchboard-Setup-0.1.0-x64.exe (not committed; rebuild with npm run build then npm run dist -w apps/desktop)
+Bytes: 128308128
+SHA256: 2F4F1C1BDF9776E66FD04BA55017B49D8F56787503229362DDB7BA617409C1F3
+Built: 2026-10-25T21:11:30 with electron-builder NSIS x64; unsigned (no code-signing certificate yet); appId ca.techloop.switchboard.
+
